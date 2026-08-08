@@ -1,0 +1,19 @@
+# === Secrets — JAMAIS sur git ===
+.env
+**/serviceAccountKey.json
+**/config.php
+docker-compose.yml
+
+# === Sauvegardes / logs ===
+*.save
+*.log
+.build.log
+
+# === Dépendances (réinstallables) ===
+**/node_modules/
+**/vendor/
+
+# === Données runtime (uploads utilisateurs) ===
+**/uploads/*
+!**/uploads/.gitkeep
+data/

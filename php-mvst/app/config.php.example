@@ -1,0 +1,27 @@
+<?php
+// ─── Connexion à la base de données PostgreSQL ────────────────────────────────
+$host     = 'db-mvst';        // nom du conteneur PostgreSQL
+$dbname   = 'mvst';
+$user     = 'mvst_user';
+$password = 'CHANGE_ME';
+$port     = '5432';
+
+try {
+    $conn = new PDO(
+        "pgsql:host=$host;port=$port;dbname=$dbname",
+        $user,
+        $password,
+        [
+            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES   => false,
+        ]
+    );
+} catch (PDOException $e) {
+    echo json_encode([
+        "success" => false,
+        "message" => "Erreur de connexion : " . $e->getMessage()
+    ]);
+    exit();
+}
+?>
