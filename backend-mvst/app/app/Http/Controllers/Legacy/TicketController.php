@@ -251,4 +251,317 @@ class TicketController extends Controller
             return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
         }
     }
+
+    /**
+     * Equivalent de ajouterTickets.php.
+     * POST JSON. documentId+places(array) obligatoires (isset verifie) ; les autres
+     * champs (idUtilisateur, nom, telephone, date, heure, depart, destination,
+     * prixDuTicket, datePourCalcule) sont lus SANS isset() dans le PHP source (deja
+     * signale en phase 1, B11) : lus ici avec ?? null (meme decision deja validee
+     * qu'aux points 10/13/16), un champ absent devient NULL en base au lieu de
+     * casser le JSON avec un warning.
+     *
+     * Cree les tickets definitifs en boucle sur places[], dans une transaction.
+     * AUCUN verrou, AUCUNE verification que les places sont libres : reproduit a
+     * l'identique la limitation deja documentee (A_REVOIR.md / rapport phase 1, B2).
+     */
+    public function ajouterTickets(Request $request): JsonResponse
+    {
+        try {
+            $data = json_decode($request->getContent(), true);
+
+            if (! isset($data['documentId']) || ! isset($data['places'])) {
+                return response()->json(['success' => false, 'message' => 'Paramètres manquants'], 200);
+            }
+
+            $documentId = $data['documentId'];
+            $idUtilisateur = $data['idUtilisateur'] ?? null;
+            $nom = $data['nom'] ?? null;
+            $telephone = $data['telephone'] ?? null;
+            $date = $data['date'] ?? null;
+            $heure = $data['heure'] ?? null;
+            $depart = $data['depart'] ?? null;
+            $destination = $data['destination'] ?? null;
+            $prixDuTicket = (int) ($data['prixDuTicket'] ?? 0);
+            $places = $data['places'];
+            $statut = $data['statut'] ?? 'valide';
+            $etatScanne = $data['etatScanne'] ?? 'nonScanné';
+            $datePourCalcule = substr($data['datePourCalcule'] ?? '', 0, 10);
+            $typeVoyage = $data['typeVoyage'] ?? 'standard';
+
+            if (empty($places) || ! is_array($places)) {
+                return response()->json(['success' => false, 'message' => 'Aucune place fournie'], 200);
+            }
+
+            DB::beginTransaction();
+
+            foreach ($places as $place) {
+                DB::insert(
+                    'INSERT INTO "Tickets"
+                        ("documentId", "idUtilisateur", nom, telephone, date, heure,
+                         depart, destination, "prixDuTicket", place, "etatScanne",
+                         statut, "datePourCalcule", "scanneDate", "dateDeCreation", "typeVoyage")
+                    VALUES
+                        (:documentId, :idUtilisateur, :nom, :telephone, :date, :heure,
+                         :depart, :destination, :prixDuTicket, :place, :etatScanne,
+                         :statut, :datePourCalcule, \'\', NOW(), :typeVoyage)',
+                    [
+                        'documentId' => $documentId,
+                        'idUtilisateur' => $idUtilisateur,
+                        'nom' => $nom,
+                        'telephone' => $telephone,
+                        'date' => $date,
+                        'heure' => $heure,
+                        'depart' => $depart,
+                        'destination' => $destination,
+                        'prixDuTicket' => $prixDuTicket,
+                        'place' => (int) $place,
+                        'etatScanne' => $etatScanne,
+                        'statut' => $statut,
+                        'datePourCalcule' => $datePourCalcule,
+                        'typeVoyage' => $typeVoyage,
+                    ]
+                );
+            }
+
+            DB::commit();
+
+            return response()->json(['success' => true, 'message' => 'Tickets ajoutés avec succès'], 200);
+        } catch (\Exception $e) {
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
+
+            return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
+        }
+    }
+
+    /**
+     * Equivalent de misAjourEtatScanne.php.
+     * POST JSON. documentId+idUtilisateur+place obligatoires.
+     *
+     * ATTENTION (a noter dans A_REVOIR.md) : rowCount() jamais verifie. Reponse
+     * success=true meme si aucune ligne ne correspondait (documentId/idUtilisateur/
+     * place incoherents) -- c'est l'action de scan elle-meme, la plus sensible du
+     * projet cote ecriture.
+     */
+    public function misAjourEtatScanne(Request $request): JsonResponse
+    {
+        try {
+            $data = json_decode($request->getContent(), true);
+
+            if (! isset($data['documentId']) || ! isset($data['idUtilisateur']) || ! isset($data['place'])) {
+                return response()->json(['success' => false, 'message' => 'Paramètres manquants'], 200);
+            }
+
+            $documentId = $data['documentId'];
+            $idUtilisateur = $data['idUtilisateur'];
+            $place = (int) $data['place'];
+            $scanneDate = date('Y-m-d H:i:s');
+
+            DB::update(
+                'UPDATE "Tickets"
+                 SET "etatScanne" = \'scanné\', "scanneDate" = :scanneDate
+                 WHERE "documentId" = :documentId
+                 AND "idUtilisateur" = :idUtilisateur
+                 AND place = :place',
+                ['scanneDate' => $scanneDate, 'documentId' => $documentId, 'idUtilisateur' => $idUtilisateur, 'place' => $place]
+            );
+
+            return response()->json(['success' => true, 'message' => 'Ticket mis à jour'], 200);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
+        }
+    }
+
+    /**
+     * Equivalent de suppressionTickets.php.
+     * POST JSON, deux modes : "dates" (array, liste des tickets) ou
+     * action="supprimer"+"id" (DELETE). Le PHP source ne rejette pas les methodes
+     * non-POST au niveau HTTP, il retombe juste sur "Action non reconnue" : route
+     * enregistree en ANY pour rester fidele.
+     *
+     * ATTENTION (deja signalee phase 1, B5) : la clause IN(...) est construite avec
+     * un nombre de placeholders egal a count($dates), sans plafond. Reproduit a
+     * l'identique. Le DELETE ne resynchronise jamais Departs.placesChoisies /
+     * PlacesTemporaires (deja signale phase 1, B2) : aucune correction ajoutee.
+     */
+    public function suppressionTickets(Request $request): JsonResponse
+    {
+        try {
+            $data = json_decode($request->getContent(), true);
+            $method = $request->method();
+
+            if ($method === 'POST' && isset($data['dates'])) {
+                $dates = $data['dates'];
+                $placeholders = implode(',', array_fill(0, count($dates), '?'));
+
+                $tickets = DB::select(
+                    "SELECT * FROM \"Tickets\" WHERE date IN ($placeholders) ORDER BY \"dateDeCreation\" DESC",
+                    $dates
+                );
+
+                return response()->json(['success' => true, 'tickets' => $tickets], 200);
+            }
+
+            if ($method === 'POST' && isset($data['action']) && $data['action'] === 'supprimer') {
+                $id = (int) ($data['id'] ?? 0);
+
+                DB::delete('DELETE FROM "Tickets" WHERE id = :id', ['id' => $id]);
+
+                return response()->json(['success' => true, 'message' => 'Ticket supprimé'], 200);
+            }
+
+            return response()->json(['success' => false, 'message' => 'Action non reconnue'], 200);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
+        }
+    }
+
+    /**
+     * Equivalent de recuperation_mes_tickets.php.
+     * POST JSON. idUtilisateur obligatoire ; offset/limit optionnels (defaut 0/30,
+     * non bornes -- deja signale phase 1). Lecture seule.
+     */
+    public function recuperationMesTickets(Request $request): JsonResponse
+    {
+        try {
+            $data = json_decode($request->getContent(), true);
+
+            if (! isset($data['idUtilisateur'])) {
+                return response()->json(['success' => false, 'message' => 'Paramètre manquant : idUtilisateur'], 200);
+            }
+
+            $idUtilisateur = $data['idUtilisateur'];
+            $offset = isset($data['offset']) ? (int) $data['offset'] : 0;
+            $limit = isset($data['limit']) ? (int) $data['limit'] : 30;
+
+            $total = (int) DB::selectOne(
+                'SELECT COUNT(*) as total FROM "Tickets" WHERE "idUtilisateur" = :idUtilisateur',
+                ['idUtilisateur' => $idUtilisateur]
+            )->total;
+
+            $tickets = DB::select(
+                'SELECT
+                    "documentId",
+                    "idUtilisateur",
+                    nom,
+                    telephone,
+                    date,
+                    heure,
+                    depart,
+                    destination,
+                    place,
+                    "etatScanne",
+                    "prixDuTicket",
+                    statut,
+                    "datePourCalcule"::text,
+                    "typeVoyage"
+                FROM "Tickets"
+                WHERE "idUtilisateur" = :idUtilisateur
+                ORDER BY "dateDeCreation" DESC
+                LIMIT :limit OFFSET :offset',
+                ['idUtilisateur' => $idUtilisateur, 'limit' => $limit, 'offset' => $offset]
+            );
+
+            return response()->json(['success' => true, 'tickets' => $tickets, 'total' => $total], 200);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
+        }
+    }
+
+    /**
+     * Equivalent de recuperation_mes_tickets_tableau.php.
+     * Variante de recuperationMesTickets avec limit par defaut 100 et colonnes
+     * supplementaires (scanneDate, dateDeCreation). Lecture seule.
+     */
+    public function recuperationMesTicketsTableau(Request $request): JsonResponse
+    {
+        try {
+            $data = json_decode($request->getContent(), true);
+
+            if (! isset($data['idUtilisateur'])) {
+                return response()->json(['success' => false, 'message' => 'Paramètre manquant : idUtilisateur'], 200);
+            }
+
+            $idUtilisateur = $data['idUtilisateur'];
+            $offset = isset($data['offset']) ? (int) $data['offset'] : 0;
+            $limit = isset($data['limit']) ? (int) $data['limit'] : 100;
+
+            $total = (int) DB::selectOne(
+                'SELECT COUNT(*) as total FROM "Tickets" WHERE "idUtilisateur" = :idUtilisateur',
+                ['idUtilisateur' => $idUtilisateur]
+            )->total;
+
+            $tickets = DB::select(
+                'SELECT
+                    t."documentId",
+                    t."idUtilisateur",
+                    t.nom,
+                    t.telephone,
+                    t.date,
+                    t.heure,
+                    t.depart,
+                    t.destination,
+                    t.place,
+                    t."etatScanne",
+                    t."prixDuTicket",
+                    t.statut,
+                    t."datePourCalcule"::text,
+                    t."scanneDate",
+                    t."dateDeCreation"::text,
+                    t."typeVoyage"
+                FROM "Tickets" t
+                WHERE t."idUtilisateur" = :idUtilisateur
+                ORDER BY t."dateDeCreation" DESC NULLS LAST
+                LIMIT :limit OFFSET :offset',
+                ['idUtilisateur' => $idUtilisateur, 'limit' => $limit, 'offset' => $offset]
+            );
+
+            return response()->json(['success' => true, 'tickets' => $tickets, 'total' => $total], 200);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
+        }
+    }
+
+    /**
+     * Equivalent de graphiques.php.
+     * POST JSON. type=jour/moisAnnee/annee + gare obligatoires. Lecture seule.
+     */
+    public function graphiques(Request $request): JsonResponse
+    {
+        try {
+            $data = json_decode($request->getContent(), true);
+            $type = $data['type'] ?? '';
+            $gare = $data['gare'] ?? '';
+
+            if ($type === 'jour') {
+                $sql = 'SELECT t.* FROM "Tickets" t
+                        JOIN "Departs" d ON t."documentId" = d."documentId"
+                        WHERE d."dateDeDepart" = :valeur
+                        AND t.depart = :gare';
+                $valeur = $data['date'] ?? null;
+            } elseif ($type === 'moisAnnee') {
+                $sql = 'SELECT t.* FROM "Tickets" t
+                        JOIN "Departs" d ON t."documentId" = d."documentId"
+                        WHERE d."moisAnnee" = :valeur
+                        AND t.depart = :gare';
+                $valeur = $data['moisAnnee'] ?? null;
+            } elseif ($type === 'annee') {
+                $sql = 'SELECT t.* FROM "Tickets" t
+                        JOIN "Departs" d ON t."documentId" = d."documentId"
+                        WHERE d.annee = :valeur
+                        AND t.depart = :gare';
+                $valeur = $data['annee'] ?? null;
+            } else {
+                return response()->json(['success' => false, 'message' => 'Type non reconnu'], 200);
+            }
+
+            $tickets = DB::select($sql, ['valeur' => $valeur, 'gare' => $gare]);
+
+            return response()->json(['success' => true, 'tickets' => $tickets], 200);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
+        }
+    }
 }

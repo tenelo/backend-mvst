@@ -88,3 +88,12 @@ Route::post('ticketsDuJour.php', [TicketController::class, 'ticketsDuJour']);
 Route::post('ticketsDuJourScannes.php', [TicketController::class, 'ticketsDuJourScannes']);
 Route::post('tableauAdmin.php', [TicketController::class, 'tableauAdmin']);
 Route::post('placesAssises.php', [TicketController::class, 'placesAssises']);
+
+// ─── Lot 8b : Tickets — pagination / ecritures ──────────────────────────────
+
+Route::post('recuperation_mes_tickets.php', [TicketController::class, 'recuperationMesTickets']);
+Route::post('recuperation_mes_tickets_tableau.php', [TicketController::class, 'recuperationMesTicketsTableau']);
+Route::post('graphiques.php', [TicketController::class, 'graphiques']);
+Route::post('ajouterTickets.php', [TicketController::class, 'ajouterTickets']);
+Route::post('misAjourEtatScanne.php', [TicketController::class, 'misAjourEtatScanne']);
+Route::any('suppressionTickets.php', [TicketController::class, 'suppressionTickets']);
