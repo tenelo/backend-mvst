@@ -3,6 +3,7 @@
 use App\Http\Controllers\Legacy\AdminController;
 use App\Http\Controllers\Legacy\DiversController;
 use App\Http\Controllers\Legacy\ImageController;
+use App\Http\Controllers\Legacy\PointsController;
 use App\Http\Controllers\Legacy\UtilisateurController;
 use Illuminate\Support\Facades\Route;
 
@@ -39,3 +40,8 @@ Route::post('verifierUtilisateur.php', [UtilisateurController::class, 'verifier'
 Route::post('verifierTelephone.php', [UtilisateurController::class, 'verifierTelephone']);
 Route::post('insert_utilisateur.php', [UtilisateurController::class, 'insert']);
 Route::post('update_utilisateur.php', [UtilisateurController::class, 'update']);
+
+// ─── Lot 3 : Points ─────────────────────────────────────────────────────────
+
+Route::post('decrementerPoints.php', [PointsController::class, 'decrementer']);
+Route::post('reinitialiserPoints.php', [PointsController::class, 'reinitialiserPoints']);
