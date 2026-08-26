@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Legacy\AdminController;
+use App\Http\Controllers\Legacy\DepartController;
 use App\Http\Controllers\Legacy\DiversController;
 use App\Http\Controllers\Legacy\GareController;
 use App\Http\Controllers\Legacy\ImageController;
@@ -69,3 +70,8 @@ Route::post('getPrixDesTickets.php', [LignePrixController::class, 'getPrixDesTic
 // bootstrap/app.php (seul endpoint du projet lu en multipart via $request->input()).
 Route::match(['get', 'post'], 'gestionImages.php', [ImageController::class, 'gestionImages']);
 Route::any('api_suggestions.php', [SuggestionController::class, 'apiSuggestions']);
+
+// ─── Lot 7 : Departs ─────────────────────────────────────────────────────────
+
+Route::post('departsParGare.php', [DepartController::class, 'departsParGare']);
+Route::post('process_places_temporaires.php', [DepartController::class, 'processPlacesTemporaires']);
