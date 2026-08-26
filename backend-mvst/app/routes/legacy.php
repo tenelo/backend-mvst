@@ -75,7 +75,7 @@ Route::any('api_suggestions.php', [SuggestionController::class, 'apiSuggestions'
 // ─── Lot 7 : Departs ─────────────────────────────────────────────────────────
 
 Route::post('departsParGare.php', [DepartController::class, 'departsParGare']);
-Route::post('process_places_temporaires.php', [DepartController::class, 'processPlacesTemporaires']);
+Route::match(['get', 'post'], 'process_places_temporaires.php', [DepartController::class, 'processPlacesTemporaires']);
 
 // ─── Lot 8a : Tickets — lectures ────────────────────────────────────────────
 
