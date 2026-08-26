@@ -8,6 +8,7 @@ use App\Http\Controllers\Legacy\ImageController;
 use App\Http\Controllers\Legacy\LignePrixController;
 use App\Http\Controllers\Legacy\PointsController;
 use App\Http\Controllers\Legacy\SuggestionController;
+use App\Http\Controllers\Legacy\TicketController;
 use App\Http\Controllers\Legacy\UtilisateurController;
 use Illuminate\Support\Facades\Route;
 
@@ -75,3 +76,15 @@ Route::any('api_suggestions.php', [SuggestionController::class, 'apiSuggestions'
 
 Route::post('departsParGare.php', [DepartController::class, 'departsParGare']);
 Route::post('process_places_temporaires.php', [DepartController::class, 'processPlacesTemporaires']);
+
+// ─── Lot 8a : Tickets — lectures ────────────────────────────────────────────
+
+Route::post('etatTicket.php', [TicketController::class, 'etatTicket']);
+Route::post('mesTicketsScannes.php', [TicketController::class, 'mesTicketsScannes']);
+Route::post('superadmin_mesTicketsScannes.php', [TicketController::class, 'superadminMesTicketsScannes']);
+Route::post('ticketsAscanner.php', [TicketController::class, 'ticketsAscanner']);
+Route::get('superadmin_ticketsAscanner.php', [TicketController::class, 'superadminTicketsAscanner']);
+Route::post('ticketsDuJour.php', [TicketController::class, 'ticketsDuJour']);
+Route::post('ticketsDuJourScannes.php', [TicketController::class, 'ticketsDuJourScannes']);
+Route::post('tableauAdmin.php', [TicketController::class, 'tableauAdmin']);
+Route::post('placesAssises.php', [TicketController::class, 'placesAssises']);
