@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Route;
 // comprise) pour que le contrat d'URL reste inchange pour les apps Flutter.
 // Regroupement par lot, dans l'ordre de migration convenu.
 
-// ─── Lot pilote (validation du format) ─────────────────────────────────────
+// ─── Lot pilote (valide) ────────────────────────────────────────────────────
 
 // Admins
 Route::get('listeAdmins.php', [AdminController::class, 'liste']);
@@ -20,3 +20,13 @@ Route::get('getImages.php', [ImageController::class, 'getImages']);
 
 // Divers (config)
 Route::post('recuperationHeure.php', [DiversController::class, 'recuperationHeure']);
+
+// ─── Lot 1 : Admins ─────────────────────────────────────────────────────────
+
+Route::post('ajouterAdmin.php', [AdminController::class, 'ajouterAdmin']);
+Route::post('ajouterNumeroAdmin.php', [AdminController::class, 'ajouterNumero']);
+Route::post('modifierNumeroAdmin.php', [AdminController::class, 'modifierNumero']);
+Route::post('supprimerNumeroAdmin.php', [AdminController::class, 'supprimerNumero']);
+Route::post('verifierAdmin.php', [AdminController::class, 'verifier']);
+Route::post('verifierTelephoneAdmin.php', [AdminController::class, 'verifierTelephone']);
+Route::post('recupererGare.php', [AdminController::class, 'recupererGare']);
