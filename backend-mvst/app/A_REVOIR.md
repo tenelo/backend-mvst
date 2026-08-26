@@ -394,6 +394,53 @@ Non-regression verifiee sur `listeAdmins.php` et `verifierTelephone.php`.
 
 ---
 
-*Ce fichier sera complete au fil des lots suivants (Departs, Tickets,
-etc.) a chaque fois qu'un comportement du PHP source meritera d'etre
-signale avant d'etre eventuellement corrige.*
+## Bascule Nginx — etat final (26/08/2026)
+
+Les 44 endpoints migres sont desormais tous bascules en production vers
+Laravel (`backend-mvst`), via `nginx-mvst.conf` :
+
+- Chaque endpoint a son propre bloc `location = /xxx.php { fastcgi_pass
+  backend-mvst:9000; ... }`, insere avant le bloc regex
+  `location ~ \.php$` (priorite d'un match exact sur un match regex en
+  Nginx). Ce bloc regex reste en place tel quel comme filet vers
+  `php-mvst:9000`, mais **ne matche plus aucun endpoint connu** desormais
+  que les 44 exact-match le precedent tous.
+- `php-mvst` (l'ancien backend PHP) **reste demarre et intact**, gardee
+  comme secours. Rollback en cas de probleme : restaurer
+  `nginx-mvst.conf.bak` par-dessus `nginx-mvst.conf`, puis recreer le
+  conteneur `nginx-mvst` (`docker compose up -d --force-recreate
+  nginx-mvst`) — un simple `nginx -s reload` ne suffit pas, voir le point
+  d'infra ci-dessous.
+- **Ecart de methode HTTP corrige** sur `process_places_temporaires.php`
+  (commit `c93d35d`) : le PHP source ne teste jamais
+  `$_SERVER['REQUEST_METHOD']` (GET et POST traites de facon identique),
+  mais la route Laravel n'acceptait que `POST` (`Route::post`), causant un
+  405 sur les appels GET de l'app Flutter. Corrige en `Route::match(['get',
+  'post'], ...)`. Verifie sur le domaine public : GET et POST renvoient
+  tous les deux 200 avec un corps JSON identique.
+
+### Point d'infrastructure a traiter (pas urgent, pas fonctionnel)
+
+`nginx-mvst.conf` est monte dans le conteneur en **bind-mount sur fichier
+unique** (`./nginx-mvst.conf:/etc/nginx/conf.d/default.conf`), pas en
+bind-mount de dossier. Consequence rencontree a plusieurs reprises durant
+la bascule : une edition de l'hote qui remplace le fichier de facon
+atomique (nouvel inode) laisse le conteneur accroche a l'ancien inode
+(orphelin) tant que le conteneur n'est pas recree — un `nginx -s reload`
+seul ne suffit pas et donne une fausse impression de succes. Il faut
+systematiquement `docker compose up -d --force-recreate nginx-mvst` apres
+toute edition de ce fichier.
+
+Deux pistes pour eliminer ce piege a la source :
+- Monter le **dossier** contenant `nginx-mvst.conf` plutot que le fichier
+  seul (bind-mount de repertoire, insensible au remplacement atomique de
+  fichier a l'interieur).
+- Ajouter l'outil `fcgi` (`cgi-fcgi`) au `Dockerfile` de `nginx-mvst`
+  plutot que de compter sur une installation manuelle dans le conteneur
+  en cours d'execution, qui disparait a chaque recreate.
+
+---
+
+*Ce fichier sera complete a chaque fois qu'un comportement du PHP source
+ou un ecart de migration/infrastructure meritera d'etre signale avant
+d'etre eventuellement corrige.*
