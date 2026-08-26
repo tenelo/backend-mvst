@@ -327,8 +327,73 @@ telles quelles (decision deja actee : "les deux systemes de tarification
 conserves"), sans tentative de reconciliation. Question de phase 1 (D3)
 toujours ouverte : laquelle des deux tables fait foi cote app ?
 
+## Lot 6 — Images / Suggestions
+
+### 15. `api_suggestions.php` — aucun try/catch dans tout le fichier
+
+- Laravel : `App\Http\Controllers\Legacy\SuggestionController::apiSuggestions`
+- Route : `ANY /api_suggestions.php`
+
+Meme cas que le point 12 (`api_lignes.php`) : aucun `try`/`catch` nulle
+part dans le fichier source. **Confirme par test reel** : un `telephone` de
+30 caracteres envoye a l'action `add` (colonne `telephone varchar(20)`)
+plante le PHP source avec un fatal error brut identique dans sa forme a
+celui du point 12. Meme deviation deja validee appliquee sans re-demander :
+`catch (\Throwable $e)` global, JSON `{"success":false,"error":...}` en
+HTTP 200 (cle `error`, coherente avec la convention locale du fichier).
+Verifie qu'aucune ligne partielle n'est inseree.
+
+### 16. `gestionImages.php` — absence d'isset(), mais consequence differente du point 10
+
+- Laravel : `App\Http\Controllers\Legacy\ImageController::gestionImages`
+- Route : `POST /gestionImages.php`
+
+Meme absence d'`isset()` sur les champs POST que le point 10 (`titre`,
+`description`, `statut`, `id` non verifies avant usage), mais la
+consequence differe : la colonne `titre` est `NOT NULL` (contrairement a
+`gare` dans `Gares`), donc un `titre` manquant provoque en realite une
+**vraie exception PDO catchee normalement** (ce fichier a un try/catch,
+contrairement aux points 10/12/15), pas un warning qui casse le JSON.
+Confirme par test : PHP source renvoie un warning + JSON valide contenant
+l'erreur de contrainte ; Laravel renvoie directement le JSON (sans le
+warning), avec un message d'erreur equivalent mais plus verbeux (deja
+documente comme acceptable pour toute la classe de differences
+QueryException vs PDOException). Aucune deviation supplementaire requise
+ici : le comportement observable (JSON d'erreur, HTTP 200) est deja
+coherent des deux cotes.
+
+### 17. `gestionImages.php` — CORRECTIF applique : middlewares globaux Laravel casseraient un champ vide explicite
+
+- Fichier : `bootstrap/app.php` (config globale, pas juste ce controleur)
+
+**Bug reel trouve et corrige**, pas une deviation assumee. `gestionImages.php`
+est le seul endpoint du projet lu via `$request->input()` (multipart/
+form-data, un upload de fichier ne peut pas passer par du JSON brut comme
+tous les autres endpoints). Consequence non anticipee : les middlewares
+globaux Laravel `ConvertEmptyStringsToNull` et `TrimStrings` s'appliquent
+aux champs `$request->input()`, contrairement au JSON lu via
+`getContent()` (utilise partout ailleurs dans le projet, jamais affecte).
+
+**Confirme par test** : envoyer `titre=""` (chaine vide explicite, pas un
+champ absent) sur `ajouter` :
+- PHP source : insere `titre = ''` avec succes (`id=43` cree lors du test).
+- Laravel (avant correctif) : `ConvertEmptyStringsToNull` transforme la
+  chaine vide en `NULL` avant meme d'atteindre le controleur -> violation
+  de la contrainte `NOT NULL` sur `titre` -> **echec la ou le PHP source
+  reussit**. Vraie regression fonctionnelle, pas une simple difference
+  cosmetique.
+
+**Correctif** : dans `bootstrap/app.php`, `convertEmptyStringsToNull()` et
+`trimStrings()` sont configures avec une exception (`skipWhen`) qui
+desactive ces deux middlewares uniquement pour les requetes vers
+`gestionImages.php` ; tous les autres endpoints du projet ne sont pas
+concernes (ils ne passaient de toute facon jamais par ces middlewares,
+grace a la lecture via `getContent()`). **Reteste apres correctif** :
+`titre=""` insere desormais correctement une chaine vide des deux cotes.
+Non-regression verifiee sur `listeAdmins.php` et `verifierTelephone.php`.
+
 ---
 
-*Ce fichier sera complete au fil des lots suivants (Images/Suggestions,
-Departs, Tickets, etc.) a chaque fois qu'un comportement du PHP source
-meritera d'etre signale avant d'etre eventuellement corrige.*
+*Ce fichier sera complete au fil des lots suivants (Departs, Tickets,
+etc.) a chaque fois qu'un comportement du PHP source meritera d'etre
+signale avant d'etre eventuellement corrige.*

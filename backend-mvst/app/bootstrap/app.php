@@ -19,7 +19,20 @@ return Application::configure(basePath: dirname(__DIR__))
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        //
+        // gestionImages.php est le seul endpoint du projet lu en multipart/form-data
+        // (via $request->input(), pas de JSON brut possible pour un upload de
+        // fichier). Sans cette exclusion, un champ vide ("titre" par exemple)
+        // serait converti en NULL par ce middleware global avant meme d'atteindre
+        // le controleur, ce qui violerait a tort une contrainte NOT NULL que le PHP
+        // source ne viole jamais (confirme par test, voir A_REVOIR.md). Tous les
+        // autres endpoints du projet lisent le corps JSON brut via getContent() et
+        // ne sont donc jamais affectes par ce middleware.
+        $middleware->convertEmptyStringsToNull(except: [
+            fn (Request $request) => $request->is('gestionImages.php'),
+        ]);
+        $middleware->trimStrings(except: [
+            fn (Request $request) => $request->is('gestionImages.php'),
+        ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

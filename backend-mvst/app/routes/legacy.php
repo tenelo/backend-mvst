@@ -6,6 +6,7 @@ use App\Http\Controllers\Legacy\GareController;
 use App\Http\Controllers\Legacy\ImageController;
 use App\Http\Controllers\Legacy\LignePrixController;
 use App\Http\Controllers\Legacy\PointsController;
+use App\Http\Controllers\Legacy\SuggestionController;
 use App\Http\Controllers\Legacy\UtilisateurController;
 use Illuminate\Support\Facades\Route;
 
@@ -61,3 +62,10 @@ Route::any('datesDisponibles.php', [DiversController::class, 'datesDisponibles']
 Route::any('api_lignes.php', [LignePrixController::class, 'apiLignes']);
 Route::match(['get', 'post'], 'prixTickets.php', [LignePrixController::class, 'prixTickets']);
 Route::post('getPrixDesTickets.php', [LignePrixController::class, 'getPrixDesTickets']);
+
+// ─── Lot 6 : Images / Suggestions ───────────────────────────────────────────
+
+// TrimStrings/ConvertEmptyStringsToNull exclus pour cette route dans
+// bootstrap/app.php (seul endpoint du projet lu en multipart via $request->input()).
+Route::match(['get', 'post'], 'gestionImages.php', [ImageController::class, 'gestionImages']);
+Route::any('api_suggestions.php', [SuggestionController::class, 'apiSuggestions']);
