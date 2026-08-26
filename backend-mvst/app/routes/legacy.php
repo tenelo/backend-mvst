@@ -3,6 +3,7 @@
 use App\Http\Controllers\Legacy\AdminController;
 use App\Http\Controllers\Legacy\DiversController;
 use App\Http\Controllers\Legacy\ImageController;
+use App\Http\Controllers\Legacy\UtilisateurController;
 use Illuminate\Support\Facades\Route;
 
 // Routes reproduisant a l'identique les endpoints de php-mvst/app/.
@@ -30,3 +31,11 @@ Route::post('supprimerNumeroAdmin.php', [AdminController::class, 'supprimerNumer
 Route::post('verifierAdmin.php', [AdminController::class, 'verifier']);
 Route::post('verifierTelephoneAdmin.php', [AdminController::class, 'verifierTelephone']);
 Route::post('recupererGare.php', [AdminController::class, 'recupererGare']);
+
+// ─── Lot 2 : Utilisateurs ───────────────────────────────────────────────────
+
+Route::get('get_utilisateur.php', [UtilisateurController::class, 'get']);
+Route::post('verifierUtilisateur.php', [UtilisateurController::class, 'verifier']);
+Route::post('verifierTelephone.php', [UtilisateurController::class, 'verifierTelephone']);
+Route::post('insert_utilisateur.php', [UtilisateurController::class, 'insert']);
+Route::post('update_utilisateur.php', [UtilisateurController::class, 'update']);

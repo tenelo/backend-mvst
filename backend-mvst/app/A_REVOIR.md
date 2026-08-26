@@ -79,8 +79,39 @@ autorise. Piege potentiel si une partie du code app ne lit que `success`
 au lieu de `autorise`/`existe`. A surveiller particulierement si l'app
 cliente est un jour modifiee ou reecrite.
 
+## Lot 2 — Utilisateurs
+
+### 6. `insert_utilisateur.php` — email genere automatiquement, non verifie
+
+- Laravel : `App\Http\Controllers\Legacy\UtilisateurController::insert`
+- Route : `POST /insert_utilisateur.php`
+
+Si `mail` est absent du payload, la valeur `"<telephone>@gmail.com"` est
+utilisee comme adresse email, sans aucune verification qu'elle est valide,
+reellement possedee par l'utilisateur, ou meme d'un format d'email correct
+au sens strict. Sans consequence grave en pratique (le doublon est detecte
+sur `telephone`/`idUtilisateur`, pas sur `mail`), mais si un client fournit
+explicitement un `mail` qui entre en conflit avec la contrainte UNIQUE de la
+colonne, l'erreur PostgreSQL brute remonte telle quelle dans `message`
+(pas de message convivial du type "email deja utilise").
+
+**A trancher** : garder la generation automatique telle quelle, ou
+retirer/ameliorer ce comportement lors d'une passe de nettoyage ulterieure ?
+
+### 7. `update_utilisateur.php` — succes meme si `idUtilisateur` n'existe pas
+
+- Laravel : `App\Http\Controllers\Legacy\UtilisateurController::update`
+- Route : `POST /update_utilisateur.php`
+
+Le PHP source ne teste que le booleen renvoye par `PDOStatement::execute()`
+(`true` des que la requete s'execute sans erreur SQL), jamais `rowCount()`.
+Consequence : `{"success":true,"message":"Profil mis à jour avec succès"}`
+est renvoye meme quand `idUtilisateur` ne correspond a aucune ligne (0 ligne
+modifiee). Meme famille de probleme que les points 1 et 3 du lot Admins.
+Confirme par test (`idUtilisateur` fictif "ghost_user_xyz").
+
 ---
 
-*Ce fichier sera complete au fil des lots suivants (Utilisateurs, Points,
-Tickets, etc.) a chaque fois qu'un comportement du PHP source meritera d'etre
-signale avant d'etre eventuellement corrige.*
+*Ce fichier sera complete au fil des lots suivants (Points, Tickets, etc.)
+a chaque fois qu'un comportement du PHP source meritera d'etre signale avant
+d'etre eventuellement corrige.*
