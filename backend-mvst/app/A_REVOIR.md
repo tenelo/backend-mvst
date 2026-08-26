@@ -257,8 +257,78 @@ l'utilisateur (hors du perimetre de cette migration, aucune action de ma
 part sur la base). Verifie en lecture seule apres correction :
 `MAX(id) = 14` et `InfosGares_id_seq.last_value = 14` — synchronises.
 
+## Lot 5 — Lignes / Prix
+
+### 12. `api_lignes.php` — aucun try/catch dans tout le fichier
+
+- Laravel : `App\Http\Controllers\Legacy\LignePrixController::apiLignes`
+- Route : `ANY /api_lignes.php`
+
+Contrairement a tous les autres fichiers vus jusqu'ici, `api_lignes.php` n'a
+**aucun `try`/`catch`**, ni sur le GET ni sur le POST. Toute exception PDO
+(contrainte violee, valeur trop longue, etc.) provoque un fatal error PHP
+brut. **Confirme par test reel** : un `type` de 100 caracteres envoye a
+l'action `ajouter` (colonne `type varchar(50)`) donne, cote PHP source :
+
+```
+<b>Fatal error</b>:  Uncaught PDOException: SQLSTATE[22001]: String data,
+right truncated: 7 ERROR:  value too long for type character varying(50)
+in /var/www/html/api_lignes.php:50
+```
+
+HTTP 200 malgre tout (meme mecanisme que le point 9). Verifie qu'aucune
+ligne partielle n'est inseree des deux cotes (transaction implicite d'une
+seule requete, echec propre).
+
+**Deviation appliquee, meme decision que les points 9 et 10** (deja validee
+par vous, pas re-demandee ici) : un `catch (\Throwable $e)` global entoure
+tout le corps de la methode et renvoie `{"success":false,"error":...}` en
+HTTP 200. La cle utilisee est **`error`**, pas `message` : ce fichier
+n'utilise que `error` sur ses propres branches d'echec (decision figee n2),
+donc le catch de secours suit la meme convention locale. Confirme par le
+meme test : Laravel renvoie proprement
+`{"success":false,"error":"SQLSTATE[22001]: ... (Connection: pgsql, ...)"}`
+en HTTP 200 au lieu de planter.
+
+Particularites reproduites a l'identique (pas des deviations, juste notees
+pour memoire) : `ajouter` ne renvoie que `{"success","id"}` (pas de
+`message`) ; `modifier` ne verifie jamais si une ligne a ete touchee et
+renvoie toujours `{"success":true}` seul ; `supprimer` renvoie
+`{"success": rowCount()>0}` sans aucune cle `error`/`message` en cas
+d'echec. Confirme par test (id inexistant sur modifier -> `success:true`
+quand meme ; sur supprimer -> `success:false` seul).
+
+### 13. `prixTickets.php` — meme absence d'isset() que le point 10 (lot 4)
+
+- Laravel : `App\Http\Controllers\Legacy\LignePrixController::prixTickets`
+- Route : `POST /prixTickets.php`
+
+`ajouter`/`modifier` accedent directement a `$data['axe']`/`$data['prix']`/
+`$data['id']` sans `isset()`, exactement comme `gares.php`/`infosGares.php`/
+`heuresDepart.php` (point 10, lot 4). Meme decision deja validee appliquee
+sans re-demander : lecture avec `?? null`/`?? 0`, JSON propre en sortie.
+
+### 14. Confirmation chiffree de la divergence `Lignes` / `PrixDesTickets` (deja signalee en phase 1, point D3)
+
+Donnees reelles fournies par l'utilisateur le 26/08/2026 (lecture seule,
+aucune ligne modifiee) :
+
+| Axe | Type | `Lignes.prix` | `PrixDesTickets.prix` |
+|---|---|---|---|
+| Ferké → Abidjan | standard | 8100 (id 2) | 8000 (id 1) |
+| Abidjan → Ferké | standard | 8100 (id 5) | 8000 (id 6) |
+| Ferké → Abidjan | vip | 10000 (id 8) | 10000 (id 7) |
+| Abidjan → Ferké | vip | 10000 (id 11) | 10000 (id 8) |
+
+Les deux tables ont **divergé en production** sur l'axe Ferké-Abidjan en
+`standard` (8100 vs 8000). Ce n'est pas une consequence de la migration :
+etat constate avant toute modification. Les deux tables sont conservees
+telles quelles (decision deja actee : "les deux systemes de tarification
+conserves"), sans tentative de reconciliation. Question de phase 1 (D3)
+toujours ouverte : laquelle des deux tables fait foi cote app ?
+
 ---
 
-*Ce fichier sera complete au fil des lots suivants (Tickets, Places,
-Departs, etc.) a chaque fois qu'un comportement du PHP source meritera
-d'etre signale avant d'etre eventuellement corrige.*
+*Ce fichier sera complete au fil des lots suivants (Images/Suggestions,
+Departs, Tickets, etc.) a chaque fois qu'un comportement du PHP source
+meritera d'etre signale avant d'etre eventuellement corrige.*

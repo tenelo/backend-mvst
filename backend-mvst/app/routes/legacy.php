@@ -4,6 +4,7 @@ use App\Http\Controllers\Legacy\AdminController;
 use App\Http\Controllers\Legacy\DiversController;
 use App\Http\Controllers\Legacy\GareController;
 use App\Http\Controllers\Legacy\ImageController;
+use App\Http\Controllers\Legacy\LignePrixController;
 use App\Http\Controllers\Legacy\PointsController;
 use App\Http\Controllers\Legacy\UtilisateurController;
 use Illuminate\Support\Facades\Route;
@@ -54,3 +55,9 @@ Route::match(['get', 'post'], 'infosGares.php', [GareController::class, 'infosGa
 Route::get('tarifsAxes_et_infos_gare.php', [GareController::class, 'tarifsAxesEtInfosGare']);
 Route::match(['get', 'post'], 'heuresDepart.php', [DiversController::class, 'heuresDepart']);
 Route::any('datesDisponibles.php', [DiversController::class, 'datesDisponibles']);
+
+// ─── Lot 5 : Lignes / Prix ──────────────────────────────────────────────────
+
+Route::any('api_lignes.php', [LignePrixController::class, 'apiLignes']);
+Route::match(['get', 'post'], 'prixTickets.php', [LignePrixController::class, 'prixTickets']);
+Route::post('getPrixDesTickets.php', [LignePrixController::class, 'getPrixDesTickets']);
