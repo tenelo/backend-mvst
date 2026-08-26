@@ -188,6 +188,75 @@ memes reponses `{"success":true,...}` qu'avant sur les appels normaux (non
 regression), et reponse JSON propre confirmee sur `limit=0` pour les deux
 actions.
 
+## Lot 4 — Gares / Divers config
+
+### 10. `gares.php` / `infosGares.php` / `heuresDepart.php` — aucun isset() sur les champs POST, warning PHP qui casse le JSON
+
+- Laravel : `App\Http\Controllers\Legacy\GareController::gares` /
+  `::infosGares`, `App\Http\Controllers\Legacy\DiversController::heuresDepart`
+- Routes : `POST /gares.php`, `POST /infosGares.php`, `POST /heuresDepart.php`
+
+Contrairement a la quasi-totalite des endpoints des lots 1 a 3, ces 3
+fichiers CRUD (actions `ajouter`/`modifier`) **ne font aucun `isset()`** sur
+les champs attendus (`gare`, `ville`/`description`/`telephone`, `heure`)
+avant de les utiliser. Consequence verifiee par test sur le PHP source
+(`gares.php`, action `ajouter` sans le champ `gare`) :
+
+```
+<br />
+<b>Warning</b>:  Undefined array key "gare" in /var/www/html/gares.php on line 29<br />
+{"success":true,"message":"Gare ajoutée"}
+```
+
+**Le corps de reponse n'est donc pas du JSON valide** : un warning PHP est
+prefixe avant le JSON. Un client qui fait `json_decode()` sur cette reponse
+echouerait purement et simplement. La ligne est quand meme inseree en base
+avec `gare = NULL` (colonne nullable), et `(int)$data['id']` absent devient
+`0` pour `modifier`/`supprimer` (une requete `WHERE id = 0` qui ne touche
+simplement aucune ligne, sans erreur).
+
+**Decision (26/08/2026)** : validee. Les champs manquants sont lus avec
+`?? null` (ou `?? 0` pour les id), ce qui **evite le warning** et produit un
+JSON propre et valide `{"success":true,"message":"..."}`, avec la meme
+consequence en base (colonne inseree a NULL, ou requete no-op sur id=0).
+Aucune tentative de reproduire le warning PHP inline lui-meme : le
+mecanisme de warning de Laravel (converti en `\ErrorException`, capture
+differemment de PHP-FPM) rend cette reproduction non fiable de toute facon,
+et un JSON casse n'est pas un comportement a "repliquer" au sens utile du
+terme -- ce n'est pas un contrat, c'est un accident du PHP source.
+
+**Deviation assumee de la decision figee n1** (meme logique qu'au point 9,
+lot 3) : le PHP source produit un corps de reponse invalide (warning HTML +
+JSON) sur un appel avec champ manquant ; Laravel produit un JSON valide
+`{"success":true,...}` avec la colonne concernee a NULL/0. Le code HTTP
+reste 200 des deux cotes. On privilegie la coherence du contrat JSON plutot
+que la reproduction litterale d'un artefact d'erreur PHP non intentionnel.
+
+### 11. Bug de production decouvert incidemment (hors perimetre de la migration) : sequence `InfosGares_id_seq` desynchronisee
+
+En testant `infosGares.php` (action `ajouter`), le PHP source **et** Laravel
+ont echoue de la meme facon avec une erreur de cle dupliquee :
+
+```
+SQLSTATE[23505]: Unique violation: 7 ERROR: duplicate key value violates
+unique constraint "InfosGares_pkey" DETAIL: Key (id)=(2) already exists.
+```
+
+Verification en base (lecture seule) : `MAX(id)` de `InfosGares` vaut `14`,
+mais la sequence `InfosGares_id_seq` (`last_value`) est a `2`. La sequence
+est desynchronisee de la table, probablement suite a une insertion passee
+avec des `id` explicites qui a court-circuite la sequence.
+
+**Consequence** : `infosGares.php` (action `ajouter`) etait **cassee en
+production**, cote PHP existant, independamment de toute migration Laravel.
+Ce n'etait pas une regression introduite ici (confirme par le test identique
+cote PHP source), mais un bug pre-existant.
+
+**Resolu (26/08/2026)** : la sequence a ete corrigee directement par
+l'utilisateur (hors du perimetre de cette migration, aucune action de ma
+part sur la base). Verifie en lecture seule apres correction :
+`MAX(id) = 14` et `InfosGares_id_seq.last_value = 14` — synchronises.
+
 ---
 
 *Ce fichier sera complete au fil des lots suivants (Tickets, Places,

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Legacy\AdminController;
 use App\Http\Controllers\Legacy\DiversController;
+use App\Http\Controllers\Legacy\GareController;
 use App\Http\Controllers\Legacy\ImageController;
 use App\Http\Controllers\Legacy\PointsController;
 use App\Http\Controllers\Legacy\UtilisateurController;
@@ -45,3 +46,11 @@ Route::post('update_utilisateur.php', [UtilisateurController::class, 'update']);
 
 Route::post('decrementerPoints.php', [PointsController::class, 'decrementer']);
 Route::post('reinitialiserPoints.php', [PointsController::class, 'reinitialiserPoints']);
+
+// ─── Lot 4 : Gares / Divers config ──────────────────────────────────────────
+
+Route::match(['get', 'post'], 'gares.php', [GareController::class, 'gares']);
+Route::match(['get', 'post'], 'infosGares.php', [GareController::class, 'infosGares']);
+Route::get('tarifsAxes_et_infos_gare.php', [GareController::class, 'tarifsAxesEtInfosGare']);
+Route::match(['get', 'post'], 'heuresDepart.php', [DiversController::class, 'heuresDepart']);
+Route::any('datesDisponibles.php', [DiversController::class, 'datesDisponibles']);
