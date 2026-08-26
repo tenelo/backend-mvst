@@ -10,6 +10,12 @@ use Illuminate\Support\Facades\DB;
 class TicketController extends Controller
 {
     /**
+     * Plafond serveur sur "limit" pour recuperation_mes_tickets.php (audit
+     * performance, tache 3). N'affecte aucun autre endpoint.
+     */
+    private const LIMIT_MAX_TICKETS = 100;
+
+    /**
      * Equivalent de etatTicket.php.
      * POST JSON. documentId+place obligatoires.
      * LIMIT 1 sans ORDER BY dans le PHP source : reproduit a l'identique (le
@@ -264,6 +270,22 @@ class TicketController extends Controller
      * Cree les tickets definitifs en boucle sur places[], dans une transaction.
      * AUCUN verrou, AUCUNE verification que les places sont libres : reproduit a
      * l'identique la limitation deja documentee (A_REVOIR.md / rapport phase 1, B2).
+     *
+     * SECURITE (audit performance, tache 2, 26/08/2026) : "prixDuTicket" n'est
+     * PLUS pris depuis le payload client. Il est recalcule cote serveur a partir
+     * de "Lignes" (depart+destination+type), la table qui correspond structurellement
+     * aux champs recus (depart/destination separes, comme "Lignes", contrairement a
+     * "PrixDesTickets" qui n'a qu'une colonne "axe" texte). Choix documente, pas
+     * tranche definitivement : la question de la table de reference (Lignes vs
+     * PrixDesTickets, deja ouverte en phase 1 point D3, les deux ayant des prix
+     * divergents en prod) reste a valider.
+     *
+     * Correction de l'enonce de la tache : contrairement a ce qui etait suppose,
+     * LignePrixController ne trie/normalise PAS depart/destination pour dedupliquer
+     * les deux sens d'un trajet -- verifie par lecture du code (aucun tri) et par
+     * les donnees reelles ("Ferké→Abidjan" id=2 et "Abidjan→Ferké" id=5 sont deux
+     * lignes distinctes, prix differents possibles). Le lookup ci-dessous filtre
+     * donc par depart/destination EXACTS, dans le sens recu, sans normalisation.
      */
     public function ajouterTickets(Request $request): JsonResponse
     {
@@ -282,7 +304,6 @@ class TicketController extends Controller
             $heure = $data['heure'] ?? null;
             $depart = $data['depart'] ?? null;
             $destination = $data['destination'] ?? null;
-            $prixDuTicket = (int) ($data['prixDuTicket'] ?? 0);
             $places = $data['places'];
             $statut = $data['statut'] ?? 'valide';
             $etatScanne = $data['etatScanne'] ?? 'nonScanné';
@@ -292,6 +313,20 @@ class TicketController extends Controller
             if (empty($places) || ! is_array($places)) {
                 return response()->json(['success' => false, 'message' => 'Aucune place fournie'], 200);
             }
+
+            // Revalidation serveur du prix : la valeur du client (prixDuTicket) est
+            // entierement ignoree, jamais lue. Rejet explicite si aucun tarif actif
+            // (prix > 0) ne correspond a l'axe/type exact demande.
+            $ligneReelle = DB::selectOne(
+                'SELECT prix FROM "Lignes" WHERE depart = :depart AND destination = :destination AND type = :type AND prix > 0 LIMIT 1',
+                ['depart' => $depart, 'destination' => $destination, 'type' => $typeVoyage]
+            );
+
+            if (! $ligneReelle) {
+                return response()->json(['success' => false, 'message' => 'Aucun tarif ne correspond à cet axe/type de voyage'], 200);
+            }
+
+            $prixDuTicket = (int) $ligneReelle->prix;
 
             DB::beginTransaction();
 
@@ -420,8 +455,12 @@ class TicketController extends Controller
 
     /**
      * Equivalent de recuperation_mes_tickets.php.
-     * POST JSON. idUtilisateur obligatoire ; offset/limit optionnels (defaut 0/30,
-     * non bornes -- deja signale phase 1). Lecture seule.
+     * POST JSON. idUtilisateur obligatoire ; offset/limit optionnels (defaut 0/30).
+     *
+     * PLAFOND SERVEUR (audit performance, tache 3, 26/08/2026) : "limit" reste
+     * a 30 par defaut (comportement inchange), mais ne peut plus depasser
+     * self::LIMIT_MAX_TICKETS quelle que soit la valeur envoyee par le client
+     * (deja signale en phase 1 comme non borne). "offset" n'est pas touche.
      */
     public function recuperationMesTickets(Request $request): JsonResponse
     {
@@ -435,6 +474,7 @@ class TicketController extends Controller
             $idUtilisateur = $data['idUtilisateur'];
             $offset = isset($data['offset']) ? (int) $data['offset'] : 0;
             $limit = isset($data['limit']) ? (int) $data['limit'] : 30;
+            $limit = min($limit, self::LIMIT_MAX_TICKETS);
 
             $total = (int) DB::selectOne(
                 'SELECT COUNT(*) as total FROM "Tickets" WHERE "idUtilisateur" = :idUtilisateur',
