@@ -16,6 +16,11 @@ return Application::configure(basePath: dirname(__DIR__))
             // limitation de debit, pour reproduire a l'identique le comportement
             // des fichiers .php d'origine (aucun de ces mecanismes n'existait).
             require base_path('routes/legacy.php');
+
+            // Auth Sanctum (telephone + PIN, capture au vol). Meme choix
+            // que legacy.php : hors des groupes "web"/"api", routes
+            // ouvertes, aucune protection pour l'instant.
+            require base_path('routes/auth.php');
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {

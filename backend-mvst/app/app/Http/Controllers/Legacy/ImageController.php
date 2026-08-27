@@ -12,6 +12,10 @@ class ImageController extends Controller
     /**
      * Equivalent de getImages.php.
      * GET, sans parametre. Liste les images actives (statut = 'actif').
+     *
+     * CACHE HTTP (audit performance, tache 4, 26/08/2026) : Cache-Control ajoute
+     * uniquement sur la reponse de succes (jamais sur une erreur, meme transitoire).
+     * Donnee modifiee seulement par une action admin (gestionImages.php).
      */
     public function getImages(): JsonResponse
     {
@@ -20,7 +24,8 @@ class ImageController extends Controller
                 "SELECT id, titre, description, lien_image, statut FROM \"Images\" WHERE statut = 'actif' ORDER BY \"dateDeCreation\" DESC"
             );
 
-            return response()->json(['success' => true, 'images' => $images], 200);
+            return response()->json(['success' => true, 'images' => $images], 200)
+                ->header('Cache-Control', 'public, max-age=600');
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
         }

@@ -35,4 +35,11 @@ return [
         ],
     ],
 
+    // Auth Sanctum + capture au vol du PIN (App\Services\FirebaseAuthService).
+    // Cle Web API Firebase, PAS le service account. A renseigner dans .env
+    // (FIREBASE_WEB_API_KEY), jamais commitee.
+    'firebase' => [
+        'web_api_key' => env('FIREBASE_WEB_API_KEY'),
+    ],
+
 ];

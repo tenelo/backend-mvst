@@ -67,7 +67,10 @@ class LignePrixController extends Controller
                     return $r;
                 }, $rows);
 
-                $response = response()->json(['success' => true, 'lignes' => $lignes], 200);
+                // CACHE HTTP (audit performance, tache 4, 26/08/2026) : seulement sur
+                // le succes GET, jamais sur les branches POST/erreur ci-dessous.
+                $response = response()->json(['success' => true, 'lignes' => $lignes], 200)
+                    ->header('Cache-Control', 'public, max-age=600');
             } elseif ($method === 'POST') {
                 if ($action === 'ajouter') {
                     $depart = trim($input['depart'] ?? '');
@@ -150,7 +153,9 @@ class LignePrixController extends Controller
             if ($request->method() === 'GET') {
                 $prix = DB::select('SELECT * FROM "PrixDesTickets" ORDER BY id ASC');
 
-                return response()->json(['success' => true, 'prix' => $prix], 200);
+                // CACHE HTTP (audit performance, tache 4, 26/08/2026).
+                return response()->json(['success' => true, 'prix' => $prix], 200)
+                    ->header('Cache-Control', 'public, max-age=600');
             }
 
             $data = json_decode($request->getContent(), true);

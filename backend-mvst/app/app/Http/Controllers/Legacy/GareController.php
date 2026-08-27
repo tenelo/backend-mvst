@@ -118,6 +118,9 @@ class GareController extends Controller
      * ATTENTION (deja signale en phase 1, reproduit a l'identique) : la reponse pour
      * type=gares utilise quand meme la cle "tarifs" pour porter les infos de gare
      * (ville/description/telephone), pas de cle "infos" ou "gares". Ne pas renommer.
+     *
+     * CACHE HTTP (audit performance, tache 4, 26/08/2026) : Cache-Control ajoute
+     * sur les deux reponses de succes (tarifs et gares), jamais sur une erreur.
      */
     public function tarifsAxesEtInfosGare(Request $request): JsonResponse
     {
@@ -127,13 +130,15 @@ class GareController extends Controller
             if ($type === 'tarifs') {
                 $tarifs = DB::select('SELECT axe, prix FROM "PrixDesTickets" ORDER BY axe ASC');
 
-                return response()->json(['success' => true, 'tarifs' => $tarifs], 200);
+                return response()->json(['success' => true, 'tarifs' => $tarifs], 200)
+                    ->header('Cache-Control', 'public, max-age=600');
             }
 
             if ($type === 'gares') {
                 $gares = DB::select('SELECT ville, description, telephone FROM "InfosGares" ORDER BY ville ASC');
 
-                return response()->json(['success' => true, 'tarifs' => $gares], 200);
+                return response()->json(['success' => true, 'tarifs' => $gares], 200)
+                    ->header('Cache-Control', 'public, max-age=600');
             }
 
             return response()->json(['success' => false, 'message' => 'Paramètre type manquant'], 200);
