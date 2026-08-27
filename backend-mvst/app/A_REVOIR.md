@@ -441,6 +441,76 @@ Deux pistes pour eliminer ce piege a la source :
 
 ---
 
+## AUTH SANCTUM — ETAT AU 27/08/2026
+
+### FAIT (backend)
+
+- Sanctum v4.3.3 installe. 3 migrations appliquees en prod (ciblees `--path`,
+  aucune table squelette parasite) : `personal_access_tokens`, colonne `pin`
+  (varchar 255, nullable) sur `"Utilisateurs"` et `"Admins"`, contrainte
+  UNIQUE sur `"Admins".telephone`.
+- Modeles Eloquent `Utilisateur` et `Admin` (`HasApiTokens`), tables
+  existantes.
+- `FirebaseAuthService` : verification PIN via appel HTTP REST
+  `signInWithPassword` (pas de SDK), cle `FIREBASE_WEB_API_KEY` dans `.env`.
+- Endpoints auth (`routes/auth.php`, NON proteges) : `POST /login`,
+  `POST /admin/login`, `POST /logout`, `GET /me`, `POST /reset-pin`.
+- Strategie "capture au vol" du PIN validee en prod : si `pin` NULL, Laravel
+  fait verifier par Firebase une derniere fois, puis hache (bcrypt) et
+  stocke ; connexions suivantes verifiees en local, sans Firebase. `role`
+  fait foi (`profil` ignore). Pas d'email dans l'auth.
+- Nginx : ajout de blocs `location` exact-match pour les 5 routes d'auth
+  (sans `.php`), avec `REQUEST_URI` explicite. Sauvegarde
+  `nginx-mvst.conf.bak2`.
+
+### FAIT (app cliente Flutter mvst)
+
+- Couche reseau centrale creee : `ApiClient` + `TokenStorage`
+  (`flutter_secure_storage`, cle `auth_token`, ajoute `Authorization: Bearer`
+  si token present).
+- `connection.dart` : login bascule sur `POST /login` Laravel (plus
+  Firebase).
+- `auth_service.dart` : `estConnecte()`/`getUid()` bases sur le token
+  stocke (`idUtilisateur`), plus sur `FirebaseAuth.currentUser`.
+- `main.dart` : demarrage decide via token -> session persistante OK.
+- Deconnexion centralisee (`AuthService.deconnexion`) : `POST /logout` +
+  purge token/cles + `signOut` ; branchee dans `home.dart` et
+  `pin_unlock.dart`.
+- Valide sur device reel : login, persistance apres fermeture, deconnexion.
+
+### RESTE A FAIRE (par ordre)
+
+1. App CLIENTE : migrer les 23 fichiers qui font des `http.*` directs vers
+   `ApiClient` (prealable indispensable avant de proteger les endpoints).
+2. `pin_unlock.dart:219` lit encore `user_id` (id numerique) pour
+   `decrementerPoints.php` — verifier que c'est le bon identifiant.
+3. App ADMIN (`mvst_admin`) : rien fait encore. Meme chantier que le client
+   (`ApiClient` + `TokenStorage` a creer — `flutter_secure_storage` ABSENT
+   du pubspec admin, a ajouter ; login sur `POST /admin/login` ; ~31
+   fichiers, ~68 appels `http` a migrer ; pas d'ecran "PIN oublie" cote
+   admin).
+4. `/reset-pin` : ne couvre pas les admins, et ne revalide pas l'OTP cote
+   serveur (fait confiance a l'app) — a durcir.
+5. `/me` et `/logout` resolvent le token a la main
+   (`PersonalAccessToken::findToken`) au lieu du middleware `auth:sanctum`
+   — a repasser en middleware au Temps 3.
+6. TEMPS 3 (pas commence) : proteger les 44 endpoints legacy endpoint par
+   endpoint (middleware `auth:sanctum` + verif `role` pour les routes
+   admin/superadmin, qui aujourd'hui ne testent AUCUN droit).
+7. Purger les tokens de test emis pendant les essais
+   (`personal_access_tokens`).
+
+### PERF / DETTE (rapports d'audit deja produits, a traiter separement)
+
+- App : Socket.IO duplique par ecran, `FutureBuilder` dans `build()`, pas de
+  cache image, dependance morte `flutter_screenutil`.
+- Temps reel : deplacer les `emit` socket dans `ajouterTickets.php` (touche
+  `mvst-socket`).
+- Securite metier : prix du ticket non revalide serveur ; `decrementerPoints`
+  fait confiance a un booleen client.
+
+---
+
 *Ce fichier sera complete a chaque fois qu'un comportement du PHP source
 ou un ecart de migration/infrastructure meritera d'etre signale avant
 d'etre eventuellement corrige.*
