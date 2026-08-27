@@ -8,6 +8,8 @@ docker-compose.yml
 *.save
 *.log
 .build.log
+nginx-mvst.conf.bak
+nginx-mvst.conf.bak2
 
 # === Dépendances (réinstallables) ===
 **/node_modules/
