@@ -65,13 +65,19 @@ class DepartController extends Controller
         try {
             $resultat = self::purgerPlacesTemporaires();
 
-            // Contrat HTTP inchange (deja teste/valide/bascule en prod) : la cle
-            // "nettoyees" ajoutee pour la commande planifiee (tache 1) n'est PAS
-            // exposee ici. Reponse strictement identique a avant l'extraction :
-            // {"success":true} ou {"success":true,"message":"Aucune place temporaire"}.
+            // Contrat HTTP etendu le 28/08/2026 (cf. A_REVOIR.md) : "delaiMinutes"
+            // et "nettoyees" sont desormais exposes pour l'observabilite de la
+            // purge (delai configurable en base). "success"/"message" restent le
+            // socle inchange consomme par l'app cliente.
             $reponseHttp = ['success' => $resultat['success']];
             if (isset($resultat['message'])) {
                 $reponseHttp['message'] = $resultat['message'];
+            }
+            if (isset($resultat['delaiMinutes'])) {
+                $reponseHttp['delaiMinutes'] = $resultat['delaiMinutes'];
+            }
+            if (isset($resultat['nettoyees'])) {
+                $reponseHttp['nettoyees'] = $resultat['nettoyees'];
             }
 
             return response()->json($reponseHttp, 200);
@@ -87,57 +93,86 @@ class DepartController extends Controller
     /**
      * Logique de purge extraite pour etre reutilisable depuis la commande
      * Artisan planifiee (app/Console/Commands/PurgerPlacesTemporaires.php),
-     * en plus de l'endpoint HTTP ci-dessus. Comportement identique au PHP
-     * source, non modifie par cette extraction : meme requetes, meme absence
-     * de verrou, meme non-filtrage par age des lignes PlacesTemporaires (voir
-     * A_REVOIR.md). Seule la reutilisation change, pas la logique.
+     * en plus de l'endpoint HTTP ci-dessus.
      *
-     * @return array{success: bool, message?: string, nettoyees?: int}
+     * Corrige le 28/08/2026 (cf. A_REVOIR.md) : filtre desormais sur
+     * "dateDeCreation" (age minimum configurable avant purge, au lieu
+     * d'aucun filtre) et verrouille la ligne "Departs" concernee (FOR
+     * UPDATE) le temps de chaque siege traite individuellement (au lieu
+     * d'une seule grosse transaction sans verrou sur tout le lot). Une
+     * ligne en echec (erreur SQL isolee) est loguee et n'interrompt plus
+     * le traitement des autres lignes du lot.
+     *
+     * Delai de purge lu depuis la table "Parametres"
+     * (cle "purge_delai_minutes"), avec 5 minutes en repli si la ligne est
+     * absente.
+     *
+     * @return array{success: bool, message?: string, nettoyees?: int, delaiMinutes?: int}
      */
     public static function purgerPlacesTemporaires(): array
     {
-        $placesTemp = DB::select('SELECT "documentId", places FROM "PlacesTemporaires"');
+        $delaiRow = DB::selectOne('SELECT valeur FROM "Parametres" WHERE cle = :cle', ['cle' => 'purge_delai_minutes']);
+        $delaiMinutes = $delaiRow ? (int) $delaiRow->valeur : 5;
+
+        $placesTemp = DB::select(
+            'SELECT "documentId", places FROM "PlacesTemporaires" WHERE "dateDeCreation" <= NOW() - make_interval(mins => :delai)',
+            ['delai' => $delaiMinutes]
+        );
 
         if (empty($placesTemp)) {
-            return ['success' => true, 'message' => 'Aucune place temporaire'];
+            return ['success' => true, 'message' => 'Aucune place temporaire a purger', 'delaiMinutes' => $delaiMinutes];
         }
 
-        DB::beginTransaction();
+        $nettoyees = 0;
 
         foreach ($placesTemp as $temp) {
             $documentId = $temp->documentId;
             $place = (int) $temp->places;
 
-            $result = DB::selectOne(
-                'SELECT COUNT(*) as total FROM "Tickets" WHERE "documentId" = :documentId AND place = :place AND statut = \'valide\'',
-                ['documentId' => $documentId, 'place' => $place]
-            );
+            DB::beginTransaction();
+            try {
+                $result = DB::selectOne(
+                    'SELECT COUNT(*) as total FROM "Tickets" WHERE "documentId" = :documentId AND place = :place AND statut = \'valide\'',
+                    ['documentId' => $documentId, 'place' => $place]
+                );
 
-            if ((int) $result->total === 0) {
-                $rows = DB::select('SELECT "placesChoisies" FROM "Departs" WHERE "documentId" = :documentId', ['documentId' => $documentId]);
-                $row = $rows[0] ?? null;
-
-                if ($row && $row->placesChoisies !== null && $row->placesChoisies !== '') {
-                    $decoded = json_decode($row->placesChoisies, true);
-                    $placesActuelles = is_array($decoded) ? $decoded : [];
-                    $placesRestantes = array_values(array_diff($placesActuelles, [$place]));
-                    $nouvellesPlaces = json_encode($placesRestantes);
-
-                    DB::update(
-                        'UPDATE "Departs" SET "placesChoisies" = :places WHERE "documentId" = :documentId',
-                        ['places' => $nouvellesPlaces, 'documentId' => $documentId]
+                if ((int) $result->total === 0) {
+                    $rows = DB::select(
+                        'SELECT "placesChoisies" FROM "Departs" WHERE "documentId" = :documentId FOR UPDATE',
+                        ['documentId' => $documentId]
                     );
-                }
-            }
+                    $row = $rows[0] ?? null;
 
-            DB::delete(
-                'DELETE FROM "PlacesTemporaires" WHERE "documentId" = :documentId AND places = :place',
-                ['documentId' => $documentId, 'place' => $place]
-            );
+                    if ($row && $row->placesChoisies !== null && $row->placesChoisies !== '') {
+                        $decoded = json_decode($row->placesChoisies, true);
+                        $placesActuelles = is_array($decoded) ? $decoded : [];
+                        $placesRestantes = array_values(array_diff($placesActuelles, [$place]));
+                        $nouvellesPlaces = json_encode($placesRestantes);
+
+                        DB::update(
+                            'UPDATE "Departs" SET "placesChoisies" = :places WHERE "documentId" = :documentId',
+                            ['places' => $nouvellesPlaces, 'documentId' => $documentId]
+                        );
+                    }
+                }
+
+                DB::delete(
+                    'DELETE FROM "PlacesTemporaires" WHERE "documentId" = :documentId AND places = :place',
+                    ['documentId' => $documentId, 'place' => $place]
+                );
+
+                DB::commit();
+                $nettoyees++;
+            } catch (\Throwable $e) {
+                DB::rollBack();
+                \Log::error('Erreur purge place temporaire', [
+                    'documentId' => $documentId,
+                    'place' => $place,
+                    'erreur' => $e->getMessage(),
+                ]);
+            }
         }
 
-        DB::commit();
-
-        return ['success' => true, 'nettoyees' => count($placesTemp)];
+        return ['success' => true, 'nettoyees' => $nettoyees, 'delaiMinutes' => $delaiMinutes];
     }
 }
