@@ -511,6 +511,50 @@ Deux pistes pour eliminer ce piege a la source :
 
 ---
 
+## MIGRATION APP CLIENTE (Flutter mvst) — ETAT AU 28/08/2026
+
+### FAIT ET VALIDE SUR DEVICE REEL
+
+- Couche reseau centrale `ApiClient` (avec timeout configurable) +
+  `TokenStorage`.
+- Login sur `POST /login` Laravel, session persistante (`main.dart` via
+  token), deconnexion centralisee (`AuthService.deconnexion` : `/logout` +
+  purge).
+- Les 23 ecrans migres de `http.*` direct vers `ApiClient`, en 3 lots :
+  lot1 affichage, lot2 ecrans utilisateur, lot3 flux d'achat.
+- Achat de bout en bout (Standard ET VIP) teste OK, sans boucle de
+  connexion.
+- Bugs "ecran se croit deconnecte" (Firebase residuel) corriges dans
+  `home.dart`, `accueil.dart`, `cartes_lignes_trajets.dart`.
+- Cas speciaux : code mort supprime dans `models.dart` ; `mesFonctions.dart`
+  laisse volontairement hors `ApiClient` (contrainte Isolate, nettoyage
+  sans besoin de token).
+
+### FAIT MAIS PAS ENCORE TESTE EN REEL (a valider avant de considerer sur)
+
+- Inscription (`authentification.dart`) : raccordee au token Laravel
+  (appel `/login` apres creation). NON teste (necessite un numero sans
+  compte).
+- PIN oublie (`pin_forgot.dart`) : raccorde au token Laravel apres reset.
+  NON teste (changerait un vrai PIN + envoie un SMS).
+  -> TEST A FAIRE : creer un nouveau compte puis reserver (pas de boucle) ;
+     reinitialiser un PIN puis reserver (pas de boucle).
+
+### RESTE A FAIRE
+
+- App ADMIN (`mvst_admin`) : rien fait. Creer `ApiClient` + `TokenStorage`
+  (`flutter_secure_storage` ABSENT du pubspec admin, a ajouter), login sur
+  `POST /admin/login`, migrer ~31 fichiers / ~68 appels `http`, pas d'ecran
+  PIN oublie cote admin.
+- `/reset-pin` backend ne couvre pas les admins + ne revalide pas l'OTP
+  serveur.
+- TEMPS 3 : proteger les 44 endpoints (middleware `auth:sanctum` + verif
+  `role` pour routes admin/superadmin), endpoint par endpoint. Rappel :
+  `/me` et `/logout` a repasser en middleware `auth:sanctum`.
+- Purger les tokens de test dans `personal_access_tokens`.
+
+---
+
 *Ce fichier sera complete a chaque fois qu'un comportement du PHP source
 ou un ecart de migration/infrastructure meritera d'etre signale avant
 d'etre eventuellement corrige.*
