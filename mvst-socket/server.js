@@ -104,3 +104,25 @@ server.listen(PORT, () => {
   console.log(`\n🚀 MVST Socket.IO démarré sur le port ${PORT}`);
   console.log(`📡 Health check : http://localhost:${PORT}/health\n`);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PURGE AUTOMATIQUE DES PLACES TEMPORAIRES ABANDONNEES
+// ─────────────────────────────────────────────────────────────────────────────
+const PURGE_INTERVALLE_MS = 60 * 1000; // verifie toutes les minutes
+
+async function lancerPurgePeriodique() {
+  try {
+    const reponse = await fetch('http://nginx-mvst/process_places_temporaires.php', {
+      method: 'POST',
+    });
+    const resultat = await reponse.json();
+    if (resultat.nettoyees) {
+      console.log(`🧹 Purge auto: ${resultat.nettoyees} place(s) liberee(s) (delai: ${resultat.delaiMinutes} min)`);
+    }
+  } catch (err) {
+    console.error('❌ Erreur purge automatique:', err.message);
+  }
+}
+
+lancerPurgePeriodique();
+setInterval(lancerPurgePeriodique, PURGE_INTERVALLE_MS);
