@@ -169,13 +169,29 @@ async function libererPlaces(socket, payload, io) {
       return;
     }
 
+    const ticketsResult = await client.query(
+      `SELECT place FROM "Tickets" WHERE "documentId" = $1 AND place = ANY($2::int[]) AND statut = 'valide'`,
+      [documentId, numerosDePlace]
+    );
+    const placesVendues  = ticketsResult.rows.map(r => r.place);
+    const placesALiberer = numerosDePlace.filter(p => !placesVendues.includes(p));
+
+    if (placesVendues.length > 0) {
+      console.warn(`⚠️ libererPlaces: places [${placesVendues}] ignorées dans ${documentId} — Ticket valide déjà existant`);
+    }
+
+    if (placesALiberer.length === 0) {
+      await client.query('ROLLBACK');
+      return;
+    }
+
     let placesActuelles = [];
     if (result.rows[0].placesChoisies) {
       const decoded = JSON.parse(result.rows[0].placesChoisies);
       placesActuelles = Array.isArray(decoded) ? decoded : [];
     }
 
-    const placesRestantes = placesActuelles.filter(p => !numerosDePlace.includes(p));
+    const placesRestantes = placesActuelles.filter(p => !placesALiberer.includes(p));
     const nouvellesPlaces = JSON.stringify(placesRestantes);
 
     await client.query(
@@ -183,7 +199,7 @@ async function libererPlaces(socket, payload, io) {
       [nouvellesPlaces, documentId]
     );
 
-    for (const place of numerosDePlace) {
+    for (const place of placesALiberer) {
       await client.query(
         `DELETE FROM "PlacesTemporaires" WHERE "documentId" = $1 AND places = $2`,
         [documentId, place]
@@ -191,10 +207,10 @@ async function libererPlaces(socket, payload, io) {
     }
 
     await client.query('COMMIT');
-    console.log(`🔓 Places [${numerosDePlace}] libérées dans ${documentId}`);
+    console.log(`🔓 Places [${placesALiberer}] libérées dans ${documentId}`);
 
     io.to(nomRoom).emit('place_liberee', {
-      numerosDePlace: numerosDePlace,
+      numerosDePlace: placesALiberer,
       documentId:     documentId,
     });
 
