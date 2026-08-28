@@ -529,6 +529,7 @@ Deux pistes pour eliminer ce piege a la source :
 - Cas speciaux : code mort supprime dans `models.dart` ; `mesFonctions.dart`
   laisse volontairement hors `ApiClient` (contrainte Isolate, nettoyage
   sans besoin de token).
+- Commit Flutter : `a0dcb9d` sur `main` (repo app cliente).
 
 ### FAIT MAIS PAS ENCORE TESTE EN REEL (a valider avant de considerer sur)
 
