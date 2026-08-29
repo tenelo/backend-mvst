@@ -152,10 +152,13 @@ async function choisirPlace(socket, payload, io) {
 // ─────────────────────────────────────────────────────────────────────────────
 async function libererPlaces(socket, payload, io) {
   const client = await pool.connect();
+  let documentId;
+  let numerosDePlace;
   try {
-    const { depart, destination, date, heure, numerosDePlace } = payload;
-    const documentId = construireDocumentId(depart, destination, date, heure);
-    const nomRoom    = construireNomRoom(documentId);
+    ({ numerosDePlace } = payload);
+    const { depart, destination, date, heure } = payload;
+    documentId = construireDocumentId(depart, destination, date, heure);
+    const nomRoom = construireNomRoom(documentId);
 
     await client.query('BEGIN');
 
@@ -166,6 +169,11 @@ async function libererPlaces(socket, payload, io) {
 
     if (result.rows.length === 0) {
       await client.query('ROLLBACK');
+      socket.emit('liberation_echec', {
+        documentId,
+        numerosDePlace,
+        raison: 'trajet introuvable',
+      });
       return;
     }
 
@@ -217,6 +225,11 @@ async function libererPlaces(socket, payload, io) {
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('❌ Erreur libererPlaces:', err.message);
+    socket.emit('liberation_echec', {
+      documentId,
+      numerosDePlace,
+      raison: 'erreur serveur',
+    });
   } finally {
     client.release();
   }
