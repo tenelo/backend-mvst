@@ -267,10 +267,6 @@ class TicketController extends Controller
      * qu'aux points 10/13/16), un champ absent devient NULL en base au lieu de
      * casser le JSON avec un warning.
      *
-     * Cree les tickets definitifs en boucle sur places[], dans une transaction.
-     * AUCUN verrou, AUCUNE verification que les places sont libres : reproduit a
-     * l'identique la limitation deja documentee (A_REVOIR.md / rapport phase 1, B2).
-     *
      * SECURITE (audit performance, tache 2, 26/08/2026) : "prixDuTicket" n'est
      * PLUS pris depuis le payload client. Il est recalcule cote serveur a partir
      * de "Lignes" (depart+destination+type), la table qui correspond structurellement
@@ -286,6 +282,19 @@ class TicketController extends Controller
      * les donnees reelles ("Ferké→Abidjan" id=2 et "Abidjan→Ferké" id=5 sont deux
      * lignes distinctes, prix differents possibles). Le lookup ci-dessous filtre
      * donc par depart/destination EXACTS, dans le sens recu, sans normalisation.
+     *
+     * SECURITE (correctif double-vente, 28/08/2026, cf. A_REVOIR.md) : la
+     * limitation "aucun verrou, aucune verification que les places sont
+     * libres" (rapport phase 1, B2) n'est plus vraie. Chaque place demandee
+     * doit desormais figurer dans Departs.placesChoisies pour ce documentId
+     * (verifie sous verrou FOR UPDATE, coherent avec choisirPlace/
+     * libererPlaces/purgerPlacesTemporaires cote mvst-socket), sinon rejet
+     * explicite avant toute ecriture. "statut" n'est plus non plus lu depuis
+     * le payload client (toujours 'valide' en dur) : un statut arbitraire
+     * aurait pu casser le filtre WHERE statut='valide' utilise par la purge
+     * et par l'index UNIQUE anti double-vente. La violation de cet index
+     * (idx_tickets_doc_place_valide) est interceptee explicitement pour un
+     * message clair, au lieu de l'erreur SQL brute par defaut du fichier.
      */
     public function ajouterTickets(Request $request): JsonResponse
     {
@@ -305,7 +314,11 @@ class TicketController extends Controller
             $depart = $data['depart'] ?? null;
             $destination = $data['destination'] ?? null;
             $places = $data['places'];
-            $statut = $data['statut'] ?? 'valide';
+            // statut n'est plus lu du payload client : un Ticket cree ici est
+            // toujours 'valide' (reservation = paiement, tant que le paiement
+            // en ligne n'est pas integre). Empeche une valeur inattendue de
+            // casser le filtre WHERE statut='valide' (purge + index UNIQUE).
+            $statut = 'valide';
             $etatScanne = $data['etatScanne'] ?? 'nonScanné';
             $datePourCalcule = substr($data['datePourCalcule'] ?? '', 0, 10);
             $typeVoyage = $data['typeVoyage'] ?? 'standard';
@@ -314,9 +327,6 @@ class TicketController extends Controller
                 return response()->json(['success' => false, 'message' => 'Aucune place fournie'], 200);
             }
 
-            // Revalidation serveur du prix : la valeur du client (prixDuTicket) est
-            // entierement ignoree, jamais lue. Rejet explicite si aucun tarif actif
-            // (prix > 0) ne correspond a l'axe/type exact demande.
             $ligneReelle = DB::selectOne(
                 'SELECT prix FROM "Lignes" WHERE depart = :depart AND destination = :destination AND type = :type AND prix > 0 LIMIT 1',
                 ['depart' => $depart, 'destination' => $destination, 'type' => $typeVoyage]
@@ -329,6 +339,31 @@ class TicketController extends Controller
             $prixDuTicket = (int) $ligneReelle->prix;
 
             DB::beginTransaction();
+
+            // Verification de possession : chaque place demandee doit etre
+            // presente dans Departs.placesChoisies pour ce documentId.
+            // Verrou tenu pour la duree de la transaction, coherent avec
+            // choisirPlace/libererPlaces/purgerPlacesTemporaires.
+            $departRow = DB::selectOne(
+                'SELECT "placesChoisies" FROM "Departs" WHERE "documentId" = :documentId FOR UPDATE',
+                ['documentId' => $documentId]
+            );
+
+            $placesDetenues = [];
+            if ($departRow && $departRow->placesChoisies !== null && $departRow->placesChoisies !== '') {
+                $decoded = json_decode($departRow->placesChoisies, true);
+                $placesDetenues = is_array($decoded) ? $decoded : [];
+            }
+
+            $placesNonDetenues = array_filter($places, fn ($p) => ! in_array((int) $p, $placesDetenues, true));
+
+            if (! empty($placesNonDetenues)) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Place(s) non réservée(s) ou expirée(s) : '.implode(', ', $placesNonDetenues),
+                ], 200);
+            }
 
             foreach ($places as $place) {
                 DB::insert(
@@ -365,6 +400,10 @@ class TicketController extends Controller
         } catch (\Exception $e) {
             if (DB::transactionLevel() > 0) {
                 DB::rollBack();
+            }
+
+            if (str_contains($e->getMessage(), 'idx_tickets_doc_place_valide')) {
+                return response()->json(['success' => false, 'message' => 'Une ou plusieurs places viennent d\'être vendues à quelqu\'un d\'autre. Merci de réessayer.'], 200);
             }
 
             return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
