@@ -244,13 +244,40 @@ class TicketController extends Controller
                 return response()->json(['success' => false, 'message' => 'Paramètre manquant'], 200);
             }
 
+            $documentId = $data['documentId'];
+
             $places = DB::select(
                 'SELECT nom, telephone, depart, destination, place
                  FROM "Tickets"
                  WHERE "documentId" = :documentId AND statut = \'valide\'
                  ORDER BY place ASC',
-                ['documentId' => $data['documentId']]
+                ['documentId' => $documentId]
             );
+
+            $placesVendues = array_map(fn ($p) => (int) $p->place, $places);
+
+            $departRow = DB::selectOne(
+                'SELECT "placesChoisies" FROM "Departs" WHERE "documentId" = :documentId',
+                ['documentId' => $documentId]
+            );
+
+            if ($departRow && $departRow->placesChoisies !== null && $departRow->placesChoisies !== '') {
+                $decoded = json_decode($departRow->placesChoisies, true);
+                $placesEnCours = is_array($decoded) ? $decoded : [];
+
+                foreach ($placesEnCours as $place) {
+                    $place = (int) $place;
+                    if (! in_array($place, $placesVendues, true)) {
+                        $places[] = (object) [
+                            'nom' => null,
+                            'telephone' => null,
+                            'depart' => null,
+                            'destination' => null,
+                            'place' => $place,
+                        ];
+                    }
+                }
+            }
 
             return response()->json(['success' => true, 'places' => $places], 200);
         } catch (\Exception $e) {
