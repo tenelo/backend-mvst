@@ -135,6 +135,11 @@ async function choisirPlace(socket, payload, io) {
     await client.query('COMMIT');
     console.log(`✅ Place ${numeroDePlace} réservée dans ${documentId}`);
 
+    if (!socket.data.placesChoisies) {
+      socket.data.placesChoisies = [];
+    }
+    socket.data.placesChoisies.push(numeroDePlace);
+
     socket.emit('place_confirmee', {
       success:       true,
       numeroDePlace: numeroDePlace,
@@ -229,6 +234,10 @@ async function libererPlaces(socket, payload, io) {
     await client.query('COMMIT');
     console.log(`🔓 Places [${placesALiberer}] libérées dans ${documentId}`);
 
+    if (socket.data.placesChoisies) {
+      socket.data.placesChoisies = socket.data.placesChoisies.filter(p => !placesALiberer.includes(p));
+    }
+
     io.to(nomRoom).emit('place_liberee', {
       numerosDePlace: placesALiberer,
       documentId:     documentId,
@@ -252,6 +261,77 @@ async function libererPlaces(socket, payload, io) {
 // ─────────────────────────────────────────────────────────────────────────────
 async function gererDeconnexion(socket, io) {
   console.log(`👋 Socket déconnecté : ${socket.id}`);
+
+  const placesChoisies = socket.data.placesChoisies;
+  const documentId     = socket.data.documentId;
+  const nomRoom        = socket.data.nomRoom;
+
+  if (!placesChoisies || placesChoisies.length === 0 || !documentId) {
+    return;
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const result = await client.query(
+      `SELECT "placesChoisies" FROM "Departs" WHERE "documentId" = $1 FOR UPDATE`,
+      [documentId]
+    );
+
+    if (result.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return;
+    }
+
+    const ticketsResult = await client.query(
+      `SELECT place FROM "Tickets" WHERE "documentId" = $1 AND place = ANY($2::int[]) AND statut = 'valide'`,
+      [documentId, placesChoisies]
+    );
+    const placesVendues  = ticketsResult.rows.map(r => r.place);
+    const placesALiberer = placesChoisies.filter(p => !placesVendues.includes(p));
+
+    if (placesALiberer.length === 0) {
+      await client.query('ROLLBACK');
+      return;
+    }
+
+    let placesActuelles = [];
+    if (result.rows[0].placesChoisies) {
+      const decoded = JSON.parse(result.rows[0].placesChoisies);
+      placesActuelles = Array.isArray(decoded) ? decoded : [];
+    }
+
+    const placesRestantes = placesActuelles.filter(p => !placesALiberer.includes(p));
+    const nouvellesPlaces = JSON.stringify(placesRestantes);
+
+    await client.query(
+      `UPDATE "Departs" SET "placesChoisies" = $1 WHERE "documentId" = $2`,
+      [nouvellesPlaces, documentId]
+    );
+
+    for (const place of placesALiberer) {
+      await client.query(
+        `DELETE FROM "PlacesTemporaires" WHERE "documentId" = $1 AND places = $2`,
+        [documentId, place]
+      );
+    }
+
+    await client.query('COMMIT');
+    console.log(`🔓 Places [${placesALiberer}] libérées suite à la déconnexion de ${socket.id} dans ${documentId}`);
+
+    if (nomRoom) {
+      io.to(nomRoom).emit('place_liberee', {
+        numerosDePlace: placesALiberer,
+        documentId:     documentId,
+      });
+    }
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('❌ Erreur gererDeconnexion:', err.message);
+  } finally {
+    client.release();
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
