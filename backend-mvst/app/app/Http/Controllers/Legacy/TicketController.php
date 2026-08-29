@@ -247,7 +247,7 @@ class TicketController extends Controller
             $places = DB::select(
                 'SELECT nom, telephone, depart, destination, place
                  FROM "Tickets"
-                 WHERE "documentId" = :documentId
+                 WHERE "documentId" = :documentId AND statut = \'valide\'
                  ORDER BY place ASC',
                 ['documentId' => $data['documentId']]
             );

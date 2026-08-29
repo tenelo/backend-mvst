@@ -40,12 +40,24 @@ async function chargerPlaces(socket, payload) {
   try {
     const { documentId } = payload;
 
-    const result = await client.query(
-      `SELECT place FROM "Tickets" WHERE "documentId" = $1`,
+    const ticketsResult = await client.query(
+      `SELECT place FROM "Tickets" WHERE "documentId" = $1 AND statut = 'valide'`,
+      [documentId]
+    );
+    const placesVendues = ticketsResult.rows.map(r => r.place);
+
+    const departResult = await client.query(
+      `SELECT "placesChoisies" FROM "Departs" WHERE "documentId" = $1`,
       [documentId]
     );
 
-    const placesOccupees = result.rows.map(r => r.place);
+    let placesEnCours = [];
+    if (departResult.rows.length > 0 && departResult.rows[0].placesChoisies) {
+      const decoded = JSON.parse(departResult.rows[0].placesChoisies);
+      placesEnCours = Array.isArray(decoded) ? decoded : [];
+    }
+
+    const placesOccupees = [...new Set([...placesVendues, ...placesEnCours])];
 
     socket.emit('places_chargees', {
       success:        true,
