@@ -86,6 +86,21 @@ async function choisirPlace(socket, payload, io) {
 
     await client.query('BEGIN');
 
+    // Garantit l'existence de la ligne Departs avant le verrou, de facon
+    // atomique et sans erreur en cas de concurrence sur la toute premiere
+    // reservation d'un trajet (plusieurs clients simultanes sur un trajet
+    // neuf ne se serialisaient pas via FOR UPDATE, qui ne verrouille rien
+    // tant qu'aucune ligne n'existe — corrige ici).
+    await client.query(
+      `INSERT INTO "Departs"
+        ("documentId", "dateDeDepart", "heureDeDepart", depart, destination,
+         "moisAnnee", annee, "placesChoisies", mois, "idDesDepartsParLigne")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       ON CONFLICT ("documentId") DO NOTHING`,
+      [documentId, date, heure, depart, destination,
+       moisAnnee, annee, '[]', mois, idDesDepartsParLigne]
+    );
+
     const result = await client.query(
       `SELECT "placesChoisies" FROM "Departs" WHERE "documentId" = $1 FOR UPDATE`,
       [documentId]
@@ -111,21 +126,10 @@ async function choisirPlace(socket, payload, io) {
     placesActuelles.push(numeroDePlace);
     const nouvellesPlaces = JSON.stringify(placesActuelles);
 
-    if (result.rows.length > 0) {
-      await client.query(
-        `UPDATE "Departs" SET "placesChoisies" = $1 WHERE "documentId" = $2`,
-        [nouvellesPlaces, documentId]
-      );
-    } else {
-      await client.query(
-        `INSERT INTO "Departs"
-          ("documentId", "dateDeDepart", "heureDeDepart", depart, destination,
-           "moisAnnee", annee, "placesChoisies", mois, "idDesDepartsParLigne")
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-        [documentId, date, heure, depart, destination,
-         moisAnnee, annee, nouvellesPlaces, mois, idDesDepartsParLigne]
-      );
-    }
+    await client.query(
+      `UPDATE "Departs" SET "placesChoisies" = $1 WHERE "documentId" = $2`,
+      [nouvellesPlaces, documentId]
+    );
 
     await client.query(
       `INSERT INTO "PlacesTemporaires" ("documentId", places) VALUES ($1, $2)`,
