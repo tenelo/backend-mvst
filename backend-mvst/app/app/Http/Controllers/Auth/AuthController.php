@@ -8,7 +8,9 @@ use App\Models\Utilisateur;
 use App\Services\FirebaseAuthService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\PersonalAccessToken;
 
 /**
@@ -45,6 +47,154 @@ class AuthController extends Controller
     public function adminLogin(Request $request): JsonResponse
     {
         return $this->connecter($request, Admin::class, 'mvst-admin');
+    }
+
+    /**
+     * POST /admin/register. Cree/finalise un compte admin cote serveur, sans
+     * Firebase : la ligne Admins doit deja exister (creee par un superadmin
+     * via ajouterNumeroAdmin.php) et ne pas etre finalisee (nom IS NULL).
+     * Flux A (telephone jamais client MVST) : cree aussi la ligne
+     * Utilisateurs correspondante, avec un nouvel idUtilisateur (UUID v4).
+     * Flux B (telephone deja client MVST) : reutilise l'idUtilisateur
+     * existant, pose le pin cote Utilisateurs seulement s'il est encore NULL.
+     */
+    public function adminRegister(Request $request): JsonResponse
+    {
+        $data = json_decode($request->getContent(), true) ?? [];
+
+        foreach (['telephone', 'pin', 'nom', 'prenoms'] as $champ) {
+            if (empty($data[$champ])) {
+                return response()->json(
+                    ['success' => false, 'message' => 'Parametres manquants'],
+                    200
+                );
+            }
+        }
+        if (! preg_match('/^\d{4}$/', $data['pin'])) {
+            return response()->json(
+                ['success' => false, 'message' => 'PIN invalide'],
+                200
+            );
+        }
+
+        $telephone = $data['telephone'];
+        $nom = $data['nom'];
+        $prenoms = $data['prenoms'];
+        $residence = $data['residence'] ?? '';
+        $mail = $data['mail'] ?? $telephone.'@gmail.com';
+        $pinHash = Hash::make($data['pin']);
+
+        // La ligne Admins doit exister (creee par le superadmin via
+        // ajouterNumeroAdmin) et ne pas etre deja finalisee.
+        $adminRows = DB::select(
+            'SELECT id, nom FROM "Admins" WHERE telephone = :telephone',
+            ['telephone' => $telephone]
+        );
+        $admin = $adminRows[0] ?? null;
+        if (! $admin) {
+            return response()->json(
+                ['success' => false, 'message' => 'Numero non autorise'],
+                200
+            );
+        }
+        if (! empty($admin->nom)) {
+            return response()->json(
+                ['success' => false, 'message' => 'Compte deja cree'],
+                200
+            );
+        }
+
+        try {
+            $idUtilisateur = DB::transaction(function () use (
+                $telephone, $nom, $prenoms, $residence, $mail, $pinHash
+            ) {
+                // Flux B : le telephone est deja client MVST -> reutiliser
+                // son idUtilisateur existant (meme identite dans les 2 tables).
+                $userRows = DB::select(
+                    'SELECT "idUtilisateur" FROM "Utilisateurs" WHERE telephone = :telephone FOR UPDATE',
+                    ['telephone' => $telephone]
+                );
+                $user = $userRows[0] ?? null;
+
+                if ($user) {
+                    $idUtilisateur = $user->idUtilisateur;
+                    // Poser le PIN cote Utilisateurs s'il est encore NULL
+                    // (coherence avec la capture au vol du login client).
+                    DB::update(
+                        'UPDATE "Utilisateurs" SET pin = :pin WHERE telephone = :telephone AND pin IS NULL',
+                        ['pin' => $pinHash, 'telephone' => $telephone]
+                    );
+                } else {
+                    // Flux A : nouveau -> generer un UUID unique et creer la
+                    // ligne Utilisateurs (toutes colonnes NOT NULL remplies).
+                    do {
+                        $idUtilisateur = (string) Str::uuid();
+                        $exists = DB::select(
+                            'SELECT 1 FROM "Utilisateurs" WHERE "idUtilisateur" = :id',
+                            ['id' => $idUtilisateur]
+                        );
+                    } while (count($exists) > 0);
+
+                    DB::insert(
+                        'INSERT INTO "Utilisateurs"
+                          ("idUtilisateur","idAuth",nom,prenoms,residence,telephone,points,mail,pin,"dateDeCreation")
+                         VALUES (:idU,:idA,:nom,:prenoms,:residence,:telephone,:points,:mail,:pin,NOW())',
+                        [
+                            'idU' => $idUtilisateur,
+                            'idA' => $idUtilisateur,
+                            'nom' => $nom,
+                            'prenoms' => $prenoms,
+                            'residence' => $residence,
+                            'telephone' => $telephone,
+                            'points' => 3,
+                            'mail' => $mail,
+                            'pin' => $pinHash,
+                        ]
+                    );
+                }
+
+                // Finaliser la ligne Admins (toujours, flux A comme B).
+                DB::update(
+                    'UPDATE "Admins" SET
+                        "idUtilisateur" = :idU,
+                        "idAuth"        = :idA,
+                        nom             = :nom,
+                        prenoms         = :prenoms,
+                        residence       = :residence,
+                        mail            = :mail,
+                        pin             = :pin,
+                        "dateDeCreation" = NOW()
+                     WHERE telephone = :telephone AND nom IS NULL',
+                    [
+                        'idU' => $idUtilisateur,
+                        'idA' => $idUtilisateur,
+                        'nom' => $nom,
+                        'prenoms' => $prenoms,
+                        'residence' => $residence,
+                        'mail' => $mail,
+                        'pin' => $pinHash,
+                        'telephone' => $telephone,
+                    ]
+                );
+
+                return $idUtilisateur;
+            });
+        } catch (\Throwable $e) {
+            return response()->json(
+                ['success' => false, 'message' => 'Erreur creation : '.$e->getMessage()],
+                200
+            );
+        }
+
+        // Recharger l'Admin finalise et emettre un token (meme forme que login).
+        $compte = Admin::where('telephone', $telephone)->first();
+        $token = $compte->createToken('mvst-admin')->plainTextToken;
+
+        return response()->json([
+            'success' => true,
+            'token' => $token,
+            'utilisateur' => $this->formaterCompte($compte),
+        ], 200);
     }
 
     /**
