@@ -441,10 +441,14 @@ class TicketController extends Controller
      * Equivalent de misAjourEtatScanne.php.
      * POST JSON. documentId+idUtilisateur+place obligatoires.
      *
-     * ATTENTION (a noter dans A_REVOIR.md) : rowCount() jamais verifie. Reponse
-     * success=true meme si aucune ligne ne correspondait (documentId/idUtilisateur/
-     * place incoherents) -- c'est l'action de scan elle-meme, la plus sensible du
-     * projet cote ecriture.
+     * CORRIGE (audit anti-double-scan, cf. A_REVOIR.md) : l'UPDATE etait
+     * auparavant inconditionnel (jamais de verification de rowCount), un
+     * ticket deja scanne pouvait etre re-scanne indefiniment, avec la meme
+     * reponse success:true a chaque fois. Desormais l'UPDATE est
+     * conditionnel (statut='valide' AND etatScanne='nonScanné') et le
+     * rowCount affecte est utilise pour distinguer 3 cas : scan reussi,
+     * deja scanne, ou introuvable (via un SELECT cible en cas de 0 ligne
+     * modifiee).
      */
     public function misAjourEtatScanne(Request $request): JsonResponse
     {
@@ -460,16 +464,64 @@ class TicketController extends Controller
             $place = (int) $data['place'];
             $scanneDate = date('Y-m-d H:i:s');
 
-            DB::update(
+            // UPDATE conditionnel : ne marque QUE si le ticket est valide et
+            // pas deja scanne. rowCount = nb de lignes reellement modifiees.
+            $affected = DB::update(
                 'UPDATE "Tickets"
                  SET "etatScanne" = \'scanné\', "scanneDate" = :scanneDate
                  WHERE "documentId" = :documentId
-                 AND "idUtilisateur" = :idUtilisateur
-                 AND place = :place',
-                ['scanneDate' => $scanneDate, 'documentId' => $documentId, 'idUtilisateur' => $idUtilisateur, 'place' => $place]
+                   AND "idUtilisateur" = :idUtilisateur
+                   AND place = :place
+                   AND statut = \'valide\'
+                   AND "etatScanne" = \'nonScanné\'',
+                [
+                    'scanneDate' => $scanneDate,
+                    'documentId' => $documentId,
+                    'idUtilisateur' => $idUtilisateur,
+                    'place' => $place,
+                ]
             );
 
-            return response()->json(['success' => true, 'message' => 'Ticket mis à jour'], 200);
+            if ($affected > 0) {
+                // Scan reussi (premiere fois).
+                return response()->json([
+                    'success' => true,
+                    'etat' => 'scanne',
+                    'message' => 'Ticket validé',
+                ], 200);
+            }
+
+            // 0 ligne modifiee : soit deja scanne, soit introuvable. On
+            // distingue les deux par un SELECT cible.
+            $rows = DB::select(
+                'SELECT "etatScanne" FROM "Tickets"
+                 WHERE "documentId" = :documentId
+                   AND "idUtilisateur" = :idUtilisateur
+                   AND place = :place
+                   AND statut = \'valide\'
+                 LIMIT 1',
+                [
+                    'documentId' => $documentId,
+                    'idUtilisateur' => $idUtilisateur,
+                    'place' => $place,
+                ]
+            );
+
+            if (empty($rows)) {
+                return response()->json([
+                    'success' => false,
+                    'etat' => 'introuvable',
+                    'message' => 'Ticket introuvable',
+                ], 200);
+            }
+
+            // La ligne existe mais n'a pas ete modifiee -> deja scannee.
+            return response()->json([
+                'success' => false,
+                'etat' => 'deja_scanne',
+                'message' => 'Ticket déjà scanné',
+            ], 200);
+
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
         }
