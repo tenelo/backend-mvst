@@ -824,4 +824,84 @@ class TicketController extends Controller
             return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
         }
     }
+
+    /**
+     * vue_par_depart.php (nouvel endpoint, pas une migration PHP). POST JSON.
+     * gare+date ("YYYY-MM-DD") obligatoires. Lecture seule.
+     *
+     * Contrairement a synthese_gare.php (departsDuJour, INNER JOIN sur
+     * Tickets), part de "Departs" (LEFT JOIN "Tickets") pour lister TOUS les
+     * departs du jour, y compris ceux a 0 vente -- possible depuis l'ajout
+     * de Departs.dateVoyage (date native, remplie/indexee). Le filtre
+     * statut='valide' est dans le ON du LEFT JOIN, pas dans le WHERE, pour
+     * ne pas reperdre les departs sans ticket.
+     *
+     * Capacite lue depuis "Parametres" (cle capacite_standard/capacite_vip),
+     * pas codee en dur. Un typeVoyage inconnu (ni standard ni vip) donne
+     * capacite=NULL et restantes=NULL plutot que de planter.
+     * "surReservation" signale les cas vendus > capacite au lieu de les
+     * masquer (restantes plafonne alors a 0).
+     */
+    public function vueParDepart(Request $request): JsonResponse
+    {
+        try {
+            $data = json_decode($request->getContent(), true);
+
+            if (! isset($data['gare']) || ! isset($data['date'])) {
+                return response()->json(['success' => false, 'message' => 'Paramètres manquants'], 200);
+            }
+
+            $gare = $data['gare'];
+            $date = (new \DateTime($data['date']))->format('Y-m-d');
+
+            $capaciteRows = DB::select(
+                'SELECT cle, valeur FROM "Parametres" WHERE cle IN (\'capacite_standard\', \'capacite_vip\')'
+            );
+            $capacites = [];
+            foreach ($capaciteRows as $row) {
+                $capacites[$row->cle === 'capacite_standard' ? 'standard' : 'vip'] = (int) $row->valeur;
+            }
+
+            $departsRows = DB::select(
+                'SELECT d."documentId", d."heureDeDepart", d.destination, d."typeVoyage",
+                        COUNT(t.id) AS vendus,
+                        COUNT(t.id) FILTER (WHERE t."etatScanne" = \'scanné\') AS embarques
+                 FROM "Departs" d
+                 LEFT JOIN "Tickets" t
+                     ON t."documentId" = d."documentId" AND t.statut = \'valide\'
+                 WHERE d.depart = :gare AND d."dateVoyage" = :date
+                 GROUP BY d."documentId", d."heureDeDepart", d.destination, d."typeVoyage"
+                 ORDER BY d."heureDeDepart" ASC',
+                ['gare' => $gare, 'date' => $date]
+            );
+
+            $departs = array_map(function ($d) use ($capacites) {
+                $vendus = (int) $d->vendus;
+                $capacite = $capacites[$d->typeVoyage] ?? null;
+                $surReservation = $capacite !== null && $vendus > $capacite;
+                $restantes = $capacite === null ? null : max(0, $capacite - $vendus);
+
+                return [
+                    'documentId' => $d->documentId,
+                    'heureDeDepart' => $d->heureDeDepart,
+                    'destination' => $d->destination,
+                    'typeVoyage' => $d->typeVoyage,
+                    'vendus' => $vendus,
+                    'capacite' => $capacite,
+                    'restantes' => $restantes,
+                    'embarques' => (int) $d->embarques,
+                    'surReservation' => $surReservation,
+                ];
+            }, $departsRows);
+
+            return response()->json([
+                'success' => true,
+                'date' => $date,
+                'gare' => $gare,
+                'departs' => $departs,
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
+        }
+    }
 }

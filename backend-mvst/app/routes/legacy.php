@@ -101,3 +101,4 @@ Route::any('suppressionTickets.php', [TicketController::class, 'suppressionTicke
 // ─── Nouvel endpoint : synthese du jour par gare (pas une migration PHP) ────
 
 Route::post('synthese_gare.php', [TicketController::class, 'syntheseGare']);
+Route::post('vue_par_depart.php', [TicketController::class, 'vueParDepart']);
