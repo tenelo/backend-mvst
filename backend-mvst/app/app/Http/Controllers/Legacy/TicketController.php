@@ -722,4 +722,106 @@ class TicketController extends Controller
             return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
         }
     }
+
+    /**
+     * synthese_gare.php (nouvel endpoint, pas une migration PHP). POST JSON.
+     * gare+date ("YYYY-MM-DD") obligatoires. Lecture seule.
+     *
+     * Date de reference = date de VOYAGE (Tickets.datePourCalcule, type date
+     * natif), pas Departs.dateDeDepart (varchar libre en francais,
+     * ex. "samedi_9_mai_2026" -- non exploitable pour un filtre fiable,
+     * verifie en amont). "departsDuJour" ne peut donc lister que les
+     * departs ayant deja au moins un Ticket valide pour cette date (jointure
+     * Departs/Tickets sur documentId) : un depart programme sans aucune
+     * vente ce jour-la n'apparaitra pas dans la liste. "tauxEmbarquement"
+     * est un pourcentage (0-100), pas un ratio (0-1).
+     */
+    public function syntheseGare(Request $request): JsonResponse
+    {
+        try {
+            $data = json_decode($request->getContent(), true);
+
+            if (! isset($data['gare']) || ! isset($data['date'])) {
+                return response()->json(['success' => false, 'message' => 'Paramètres manquants'], 200);
+            }
+
+            $gare = $data['gare'];
+            $date = (new \DateTime($data['date']))->format('Y-m-d');
+            $debutSemaine = (new \DateTime($data['date']))->modify('-6 days')->format('Y-m-d');
+            $debutMois = (new \DateTime($data['date']))->modify('-29 days')->format('Y-m-d');
+
+            $bandeauRow = DB::selectOne(
+                'SELECT
+                    COUNT(*) AS vendus,
+                    COALESCE(SUM("prixDuTicket"), 0) AS recettes,
+                    COUNT(*) FILTER (WHERE "etatScanne" = \'scanné\') AS scannes
+                 FROM "Tickets"
+                 WHERE statut = \'valide\'
+                   AND depart = :gare
+                   AND "datePourCalcule" = :date',
+                ['gare' => $gare, 'date' => $date]
+            );
+
+            $vendus = (int) $bandeauRow->vendus;
+            $scannes = (int) $bandeauRow->scannes;
+            $tauxEmbarquement = $vendus > 0 ? round($scannes / $vendus * 100, 1) : 0;
+
+            $acheteursJour = DB::selectOne(
+                'SELECT COUNT(DISTINCT "idUtilisateur") AS n FROM "Tickets"
+                 WHERE statut = \'valide\' AND depart = :gare AND "datePourCalcule" = :date',
+                ['gare' => $gare, 'date' => $date]
+            );
+            $acheteursSemaine = DB::selectOne(
+                'SELECT COUNT(DISTINCT "idUtilisateur") AS n FROM "Tickets"
+                 WHERE statut = \'valide\' AND depart = :gare AND "datePourCalcule" BETWEEN :debut AND :fin',
+                ['gare' => $gare, 'debut' => $debutSemaine, 'fin' => $date]
+            );
+            $acheteursMois = DB::selectOne(
+                'SELECT COUNT(DISTINCT "idUtilisateur") AS n FROM "Tickets"
+                 WHERE statut = \'valide\' AND depart = :gare AND "datePourCalcule" BETWEEN :debut AND :fin',
+                ['gare' => $gare, 'debut' => $debutMois, 'fin' => $date]
+            );
+
+            $departsRows = DB::select(
+                'SELECT d."documentId", d."heureDeDepart", d.destination, d."typeVoyage",
+                        COUNT(*) AS vendus,
+                        COUNT(*) FILTER (WHERE t."etatScanne" = \'scanné\') AS embarques
+                 FROM "Departs" d
+                 JOIN "Tickets" t ON t."documentId" = d."documentId"
+                 WHERE d.depart = :gare
+                   AND t.statut = \'valide\'
+                   AND t."datePourCalcule" = :date
+                 GROUP BY d."documentId", d."heureDeDepart", d.destination, d."typeVoyage"
+                 ORDER BY d."heureDeDepart" ASC',
+                ['gare' => $gare, 'date' => $date]
+            );
+
+            $prochainsDeparts = array_map(fn ($d) => [
+                'heureDeDepart' => $d->heureDeDepart,
+                'destination' => $d->destination,
+                'typeVoyage' => $d->typeVoyage,
+                'documentId' => $d->documentId,
+                'vendus' => (int) $d->vendus,
+                'embarques' => (int) $d->embarques,
+            ], $departsRows);
+
+            return response()->json([
+                'success' => true,
+                'bandeau' => [
+                    'vendus' => $vendus,
+                    'recettes' => (int) $bandeauRow->recettes,
+                    'scannes' => $scannes,
+                    'tauxEmbarquement' => $tauxEmbarquement,
+                ],
+                'acheteurs' => [
+                    'jour' => (int) $acheteursJour->n,
+                    'semaine' => (int) $acheteursSemaine->n,
+                    'mois' => (int) $acheteursMois->n,
+                ],
+                'departsDuJour' => $prochainsDeparts,
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
+        }
+    }
 }

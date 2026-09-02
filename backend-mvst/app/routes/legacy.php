@@ -97,3 +97,7 @@ Route::post('graphiques.php', [TicketController::class, 'graphiques']);
 Route::post('ajouterTickets.php', [TicketController::class, 'ajouterTickets']);
 Route::post('misAjourEtatScanne.php', [TicketController::class, 'misAjourEtatScanne']);
 Route::any('suppressionTickets.php', [TicketController::class, 'suppressionTickets']);
+
+// ─── Nouvel endpoint : synthese du jour par gare (pas une migration PHP) ────
+
+Route::post('synthese_gare.php', [TicketController::class, 'syntheseGare']);
