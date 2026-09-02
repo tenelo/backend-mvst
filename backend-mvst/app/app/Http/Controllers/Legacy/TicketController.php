@@ -904,4 +904,159 @@ class TicketController extends Controller
             return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
         }
     }
+
+    /**
+     * tendances_gare.php (nouvel endpoint, pas une migration PHP). POST JSON.
+     * gare+date ("YYYY-MM-DD", date de reference = fin de periode)
+     * obligatoires. Lecture seule. statut='valide' partout, scope gare
+     * obligatoire (cas superadmin "toutes gares" pas encore gere).
+     *
+     * "heure" est incoherent en base (formats "HH:MM" et "HH:MM:SS"
+     * coexistent, deja verifie) : toujours harmonise via
+     * substring("heure" from 1 for 5) avant tout GROUP BY, jamais groupe
+     * sur la colonne brute.
+     *
+     * Fenetre "actifs" lue depuis "Parametres" (cle actifs_fenetre_mois),
+     * pas codee en dur ; compte des acheteurs distincts (idUtilisateur),
+     * pas des tokens (un utilisateur peut avoir plusieurs tokens, deja
+     * verifie).
+     */
+    public function tendancesGare(Request $request): JsonResponse
+    {
+        try {
+            $data = json_decode($request->getContent(), true);
+
+            if (! isset($data['gare']) || ! isset($data['date'])) {
+                return response()->json(['success' => false, 'message' => 'Paramètres manquants'], 200);
+            }
+
+            $gare = $data['gare'];
+            $date = (new \DateTime($data['date']))->format('Y-m-d');
+
+            $courantDebut = (new \DateTime($date))->modify('-29 days')->format('Y-m-d');
+            $courantFin = $date;
+            $precedentDebut = (new \DateTime($date))->modify('-59 days')->format('Y-m-d');
+            $precedentFin = (new \DateTime($date))->modify('-30 days')->format('Y-m-d');
+
+            // A) Courbe par jour, 30 jours glissants, serie pleine (jours a
+            // 0 inclus) via generate_series en LEFT JOIN.
+            $courbeRows = DB::select(
+                'SELECT gs.jour::date AS jour,
+                        COUNT(t.id) AS vendus,
+                        COALESCE(SUM(t."prixDuTicket"), 0) AS recettes,
+                        COUNT(t.id) FILTER (WHERE t."etatScanne" = \'scanné\') AS embarques
+                 FROM generate_series(:debut::date, :fin::date, INTERVAL \'1 day\') AS gs(jour)
+                 LEFT JOIN "Tickets" t
+                     ON t."datePourCalcule" = gs.jour::date AND t.statut = \'valide\' AND t.depart = :gare
+                 GROUP BY gs.jour
+                 ORDER BY gs.jour',
+                ['debut' => $courantDebut, 'fin' => $courantFin, 'gare' => $gare]
+            );
+            $courbeParJour = array_map(fn ($r) => [
+                'jour' => $r->jour,
+                'vendus' => (int) $r->vendus,
+                'recettes' => (int) $r->recettes,
+                'embarques' => (int) $r->embarques,
+            ], $courbeRows);
+
+            // B) Comparaison periode courante vs precedente.
+            $sqlPeriode = 'SELECT COUNT(*) AS vendus, COALESCE(SUM("prixDuTicket"), 0) AS recettes,
+                                   COUNT(*) FILTER (WHERE "etatScanne" = \'scanné\') AS embarques
+                            FROM "Tickets"
+                            WHERE statut = \'valide\' AND depart = :gare
+                              AND "datePourCalcule" BETWEEN :debut AND :fin';
+
+            $courantRow = DB::selectOne($sqlPeriode, ['gare' => $gare, 'debut' => $courantDebut, 'fin' => $courantFin]);
+            $precedentRow = DB::selectOne($sqlPeriode, ['gare' => $gare, 'debut' => $precedentDebut, 'fin' => $precedentFin]);
+
+            $courant = [
+                'vendus' => (int) $courantRow->vendus,
+                'recettes' => (int) $courantRow->recettes,
+                'embarques' => (int) $courantRow->embarques,
+            ];
+            $precedent = [
+                'vendus' => (int) $precedentRow->vendus,
+                'recettes' => (int) $precedentRow->recettes,
+                'embarques' => (int) $precedentRow->embarques,
+            ];
+
+            $variationVendusPct = $precedent['vendus'] > 0
+                ? round((($courant['vendus'] - $precedent['vendus']) / $precedent['vendus']) * 100, 1)
+                : null;
+            $variationRecettesPct = $precedent['recettes'] > 0
+                ? round((($courant['recettes'] - $precedent['recettes']) / $precedent['recettes']) * 100, 1)
+                : null;
+
+            // C) Repartitions sur la periode courante.
+            $parDestinationRows = DB::select(
+                'SELECT destination, COUNT(*) AS vendus, COALESCE(SUM("prixDuTicket"), 0) AS recettes
+                 FROM "Tickets"
+                 WHERE statut = \'valide\' AND depart = :gare AND "datePourCalcule" BETWEEN :debut AND :fin
+                 GROUP BY destination ORDER BY vendus DESC',
+                ['gare' => $gare, 'debut' => $courantDebut, 'fin' => $courantFin]
+            );
+            $parTypeRows = DB::select(
+                'SELECT "typeVoyage", COUNT(*) AS vendus, COALESCE(SUM("prixDuTicket"), 0) AS recettes
+                 FROM "Tickets"
+                 WHERE statut = \'valide\' AND depart = :gare AND "datePourCalcule" BETWEEN :debut AND :fin
+                 GROUP BY "typeVoyage" ORDER BY vendus DESC',
+                ['gare' => $gare, 'debut' => $courantDebut, 'fin' => $courantFin]
+            );
+            $parHeureRows = DB::select(
+                'SELECT substring("heure" from 1 for 5) AS heure, COUNT(*) AS vendus
+                 FROM "Tickets"
+                 WHERE statut = \'valide\' AND depart = :gare AND "datePourCalcule" BETWEEN :debut AND :fin
+                 GROUP BY substring("heure" from 1 for 5) ORDER BY heure ASC',
+                ['gare' => $gare, 'debut' => $courantDebut, 'fin' => $courantFin]
+            );
+
+            // D) Clients actifs : fenetre configurable (Parametres), pas
+            // codee en dur, defaut 3 mois si la cle est absente.
+            $fenetreRow = DB::selectOne('SELECT valeur FROM "Parametres" WHERE cle = :cle', ['cle' => 'actifs_fenetre_mois']);
+            $fenetreMois = $fenetreRow ? (int) $fenetreRow->valeur : 3;
+            $actifsDebut = (new \DateTime($date))->modify("-{$fenetreMois} months")->format('Y-m-d');
+
+            $actifsRow = DB::selectOne(
+                'SELECT COUNT(DISTINCT "idUtilisateur") AS n
+                 FROM "Tickets"
+                 WHERE statut = \'valide\' AND depart = :gare AND "datePourCalcule" BETWEEN :debut AND :fin',
+                ['gare' => $gare, 'debut' => $actifsDebut, 'fin' => $date]
+            );
+
+            return response()->json([
+                'success' => true,
+                'gare' => $gare,
+                'date' => $date,
+                'courbeParJour' => $courbeParJour,
+                'comparaison' => [
+                    'courant' => $courant,
+                    'precedent' => $precedent,
+                    'variationVendusPct' => $variationVendusPct,
+                    'variationRecettesPct' => $variationRecettesPct,
+                ],
+                'repartitions' => [
+                    'parDestination' => array_map(fn ($r) => [
+                        'destination' => $r->destination,
+                        'vendus' => (int) $r->vendus,
+                        'recettes' => (int) $r->recettes,
+                    ], $parDestinationRows),
+                    'parType' => array_map(fn ($r) => [
+                        'typeVoyage' => $r->typeVoyage,
+                        'vendus' => (int) $r->vendus,
+                        'recettes' => (int) $r->recettes,
+                    ], $parTypeRows),
+                    'parHeure' => array_map(fn ($r) => [
+                        'heure' => $r->heure,
+                        'vendus' => (int) $r->vendus,
+                    ], $parHeureRows),
+                ],
+                'actifs' => [
+                    'fenetreMois' => $fenetreMois,
+                    'nombre' => (int) $actifsRow->n,
+                ],
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
+        }
+    }
 }
