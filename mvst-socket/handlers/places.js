@@ -1,5 +1,34 @@
 const pool = require('../db');
 
+const MOIS_FR = {
+  janvier: '01', février: '02', mars: '03', avril: '04', mai: '05', juin: '06',
+  juillet: '07', août: '08', septembre: '09', octobre: '10', novembre: '11', décembre: '12',
+};
+
+// Jumelle du parsing SQL de la migration dateVoyage (mois FR -> numero,
+// meme table de correspondance). Pure, synchrone, ne throw JAMAIS : tout
+// cas hors-format retourne null (colonne "dateVoyage" nullable). Pas de
+// new Date() (fuseaux) : formatage manuel de la chaine "YYYY-MM-DD".
+function parseDateFrToISO(dateFr) {
+  if (typeof dateFr !== 'string') {
+    return null;
+  }
+  const parts = dateFr.split('_');
+  if (parts.length !== 4) {
+    return null;
+  }
+  const [, jour, mois, annee] = parts;
+  if (!/^[0-9]{1,2}$/.test(jour) || !/^[0-9]{4}$/.test(annee)) {
+    return null;
+  }
+  const moisNum = MOIS_FR[mois.toLowerCase()];
+  if (!moisNum) {
+    return null;
+  }
+  const jourPad = jour.padStart(2, '0');
+  return `${annee}-${moisNum}-${jourPad}`;
+}
+
 function construireDocumentId(depart, destination, date, heure) {
   return `${depart}-${destination}_${date}_${heure}_h`;
 }
@@ -83,6 +112,7 @@ async function choisirPlace(socket, payload, io) {
     const documentId           = construireDocumentId(depart, destination, date, heure);
     const nomRoom              = construireNomRoom(documentId);
     const idDesDepartsParLigne = `${depart}_${date}_${heure}`;
+    const dateVoyage           = parseDateFrToISO(date);
 
     await client.query('BEGIN');
 
@@ -94,11 +124,11 @@ async function choisirPlace(socket, payload, io) {
     await client.query(
       `INSERT INTO "Departs"
         ("documentId", "dateDeDepart", "heureDeDepart", depart, destination,
-         "moisAnnee", annee, "placesChoisies", mois, "idDesDepartsParLigne")
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         "moisAnnee", annee, "placesChoisies", mois, "idDesDepartsParLigne", "dateVoyage")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        ON CONFLICT ("documentId") DO NOTHING`,
       [documentId, date, heure, depart, destination,
-       moisAnnee, annee, '[]', mois, idDesDepartsParLigne]
+       moisAnnee, annee, '[]', mois, idDesDepartsParLigne, dateVoyage]
     );
 
     const result = await client.query(
