@@ -425,6 +425,10 @@ class TicketController extends Controller
 
             DB::commit();
 
+            // Notification temps reel best-effort (brique 2) : $depart deja
+            // disponible depuis le payload, pas de requete supplementaire.
+            $this->notifierSynthese($depart);
+
             return response()->json(['success' => true, 'message' => 'Tickets ajoutés avec succès'], 200);
         } catch (\Exception $e) {
             if (DB::transactionLevel() > 0) {
@@ -485,7 +489,15 @@ class TicketController extends Controller
             );
 
             if ($affected > 0) {
-                // Scan reussi (premiere fois).
+                // Scan reussi (premiere fois). Notification temps reel
+                // best-effort (brique 2) : la gare n'est pas dans le payload
+                // de cet endpoint, on la retrouve via Departs.
+                $departRow = DB::selectOne(
+                    'SELECT depart FROM "Departs" WHERE "documentId" = :docId',
+                    ['docId' => $documentId]
+                );
+                $this->notifierSynthese($departRow->depart ?? null);
+
                 return response()->json([
                     'success' => true,
                     'etat' => 'scanne',
@@ -1121,5 +1133,38 @@ class TicketController extends Controller
         }
 
         return $compte;
+    }
+
+    /**
+     * Notifie mvst-socket (brique 1, route POST /emit-synthese deja en
+     * prod) qu'une vente ou un scan vient de reussir pour cette gare, pour
+     * diffusion temps reel 'synthese_maj' a la room gare_<gare>.
+     *
+     * Best-effort strict : ne doit JAMAIS faire echouer le scan/vente qui
+     * vient de reussir. Timeout court (2s), toute erreur (socket down,
+     * timeout, DNS...) est avalee silencieusement -- meme patron que
+     * DiversController::datesDisponiblesSauvegarder (@file_get_contents),
+     * adapte en POST JSON via stream_context_create au lieu d'un GET.
+     */
+    private function notifierSynthese(?string $gare): void
+    {
+        if (empty($gare)) {
+            return;
+        }
+
+        try {
+            $contexte = stream_context_create([
+                'http' => [
+                    'method' => 'POST',
+                    'header' => "Content-Type: application/json\r\n",
+                    'content' => json_encode(['gare' => $gare]),
+                    'timeout' => 2,
+                ],
+            ]);
+
+            @file_get_contents('http://socket-mvst:3000/emit-synthese', false, $contexte);
+        } catch (\Throwable $e) {
+            // Best-effort : le temps reel est perdu ce coup-ci, le scan/vente reste valide.
+        }
     }
 }
