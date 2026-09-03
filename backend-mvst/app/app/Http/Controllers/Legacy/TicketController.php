@@ -3,9 +3,11 @@
 namespace App\Http\Controllers\Legacy;
 
 use App\Http\Controllers\Controller;
+use App\Models\Admin;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class TicketController extends Controller
 {
@@ -741,14 +743,26 @@ class TicketController extends Controller
         try {
             $data = json_decode($request->getContent(), true);
 
-            if (! isset($data['gare']) || ! isset($data['date'])) {
+            $admin = $this->resoudreAdmin($request);
+            if (! ($admin instanceof Admin)) {
+                return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
+            }
+
+            if (! isset($data['date'])) {
                 return response()->json(['success' => false, 'message' => 'Paramètres manquants'], 200);
             }
 
-            $gare = $data['gare'];
+            // Admin standard : gare imposee par le token, le payload est
+            // ignore. Superadmin : gare du payload si fournie, sinon null
+            // = toutes gares (filtre depart omis plus bas).
+            $gare = $admin->role === 'superadmin' ? ($data['gare'] ?? null) : $admin->gare;
             $date = (new \DateTime($data['date']))->format('Y-m-d');
             $debutSemaine = (new \DateTime($data['date']))->modify('-6 days')->format('Y-m-d');
             $debutMois = (new \DateTime($data['date']))->modify('-29 days')->format('Y-m-d');
+
+            $filtreGare = $gare !== null ? 'AND depart = :gare' : '';
+            $filtreGareD = $gare !== null ? 'AND d.depart = :gare' : '';
+            $bindGare = $gare !== null ? ['gare' => $gare] : [];
 
             $bandeauRow = DB::selectOne(
                 'SELECT
@@ -757,9 +771,9 @@ class TicketController extends Controller
                     COUNT(*) FILTER (WHERE "etatScanne" = \'scanné\') AS scannes
                  FROM "Tickets"
                  WHERE statut = \'valide\'
-                   AND depart = :gare
+                   '.$filtreGare.'
                    AND "datePourCalcule" = :date',
-                ['gare' => $gare, 'date' => $date]
+                array_merge($bindGare, ['date' => $date])
             );
 
             $vendus = (int) $bandeauRow->vendus;
@@ -768,18 +782,18 @@ class TicketController extends Controller
 
             $acheteursJour = DB::selectOne(
                 'SELECT COUNT(DISTINCT "idUtilisateur") AS n FROM "Tickets"
-                 WHERE statut = \'valide\' AND depart = :gare AND "datePourCalcule" = :date',
-                ['gare' => $gare, 'date' => $date]
+                 WHERE statut = \'valide\' '.$filtreGare.' AND "datePourCalcule" = :date',
+                array_merge($bindGare, ['date' => $date])
             );
             $acheteursSemaine = DB::selectOne(
                 'SELECT COUNT(DISTINCT "idUtilisateur") AS n FROM "Tickets"
-                 WHERE statut = \'valide\' AND depart = :gare AND "datePourCalcule" BETWEEN :debut AND :fin',
-                ['gare' => $gare, 'debut' => $debutSemaine, 'fin' => $date]
+                 WHERE statut = \'valide\' '.$filtreGare.' AND "datePourCalcule" BETWEEN :debut AND :fin',
+                array_merge($bindGare, ['debut' => $debutSemaine, 'fin' => $date])
             );
             $acheteursMois = DB::selectOne(
                 'SELECT COUNT(DISTINCT "idUtilisateur") AS n FROM "Tickets"
-                 WHERE statut = \'valide\' AND depart = :gare AND "datePourCalcule" BETWEEN :debut AND :fin',
-                ['gare' => $gare, 'debut' => $debutMois, 'fin' => $date]
+                 WHERE statut = \'valide\' '.$filtreGare.' AND "datePourCalcule" BETWEEN :debut AND :fin',
+                array_merge($bindGare, ['debut' => $debutMois, 'fin' => $date])
             );
 
             $departsRows = DB::select(
@@ -788,12 +802,12 @@ class TicketController extends Controller
                         COUNT(*) FILTER (WHERE t."etatScanne" = \'scanné\') AS embarques
                  FROM "Departs" d
                  JOIN "Tickets" t ON t."documentId" = d."documentId"
-                 WHERE d.depart = :gare
-                   AND t.statut = \'valide\'
+                 WHERE t.statut = \'valide\'
+                   '.$filtreGareD.'
                    AND t."datePourCalcule" = :date
                  GROUP BY d."documentId", d."heureDeDepart", d.destination, d."typeVoyage"
                  ORDER BY d."heureDeDepart" ASC',
-                ['gare' => $gare, 'date' => $date]
+                array_merge($bindGare, ['date' => $date])
             );
 
             $prochainsDeparts = array_map(fn ($d) => [
@@ -847,11 +861,16 @@ class TicketController extends Controller
         try {
             $data = json_decode($request->getContent(), true);
 
-            if (! isset($data['gare']) || ! isset($data['date'])) {
+            $admin = $this->resoudreAdmin($request);
+            if (! ($admin instanceof Admin)) {
+                return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
+            }
+
+            if (! isset($data['date'])) {
                 return response()->json(['success' => false, 'message' => 'Paramètres manquants'], 200);
             }
 
-            $gare = $data['gare'];
+            $gare = $admin->role === 'superadmin' ? ($data['gare'] ?? null) : $admin->gare;
             $date = (new \DateTime($data['date']))->format('Y-m-d');
 
             $capaciteRows = DB::select(
@@ -862,6 +881,9 @@ class TicketController extends Controller
                 $capacites[$row->cle === 'capacite_standard' ? 'standard' : 'vip'] = (int) $row->valeur;
             }
 
+            $filtreGareD = $gare !== null ? 'AND d.depart = :gare' : '';
+            $bindGare = $gare !== null ? ['gare' => $gare] : [];
+
             $departsRows = DB::select(
                 'SELECT d."documentId", d."heureDeDepart", d.destination, d."typeVoyage",
                         COUNT(t.id) AS vendus,
@@ -869,10 +891,11 @@ class TicketController extends Controller
                  FROM "Departs" d
                  LEFT JOIN "Tickets" t
                      ON t."documentId" = d."documentId" AND t.statut = \'valide\'
-                 WHERE d.depart = :gare AND d."dateVoyage" = :date
+                 WHERE d."dateVoyage" = :date
+                   '.$filtreGareD.'
                  GROUP BY d."documentId", d."heureDeDepart", d.destination, d."typeVoyage"
                  ORDER BY d."heureDeDepart" ASC',
-                ['gare' => $gare, 'date' => $date]
+                array_merge($bindGare, ['date' => $date])
             );
 
             $departs = array_map(function ($d) use ($capacites) {
@@ -926,17 +949,26 @@ class TicketController extends Controller
         try {
             $data = json_decode($request->getContent(), true);
 
-            if (! isset($data['gare']) || ! isset($data['date'])) {
+            $admin = $this->resoudreAdmin($request);
+            if (! ($admin instanceof Admin)) {
+                return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
+            }
+
+            if (! isset($data['date'])) {
                 return response()->json(['success' => false, 'message' => 'Paramètres manquants'], 200);
             }
 
-            $gare = $data['gare'];
+            $gare = $admin->role === 'superadmin' ? ($data['gare'] ?? null) : $admin->gare;
             $date = (new \DateTime($data['date']))->format('Y-m-d');
 
             $courantDebut = (new \DateTime($date))->modify('-29 days')->format('Y-m-d');
             $courantFin = $date;
             $precedentDebut = (new \DateTime($date))->modify('-59 days')->format('Y-m-d');
             $precedentFin = (new \DateTime($date))->modify('-30 days')->format('Y-m-d');
+
+            $filtreGare = $gare !== null ? 'AND depart = :gare' : '';
+            $filtreGareT = $gare !== null ? 'AND t.depart = :gare' : '';
+            $bindGare = $gare !== null ? ['gare' => $gare] : [];
 
             // A) Courbe par jour, 30 jours glissants, serie pleine (jours a
             // 0 inclus) via generate_series en LEFT JOIN.
@@ -947,10 +979,10 @@ class TicketController extends Controller
                         COUNT(t.id) FILTER (WHERE t."etatScanne" = \'scanné\') AS embarques
                  FROM generate_series(:debut::date, :fin::date, INTERVAL \'1 day\') AS gs(jour)
                  LEFT JOIN "Tickets" t
-                     ON t."datePourCalcule" = gs.jour::date AND t.statut = \'valide\' AND t.depart = :gare
+                     ON t."datePourCalcule" = gs.jour::date AND t.statut = \'valide\' '.$filtreGareT.'
                  GROUP BY gs.jour
                  ORDER BY gs.jour',
-                ['debut' => $courantDebut, 'fin' => $courantFin, 'gare' => $gare]
+                array_merge($bindGare, ['debut' => $courantDebut, 'fin' => $courantFin])
             );
             $courbeParJour = array_map(fn ($r) => [
                 'jour' => $r->jour,
@@ -963,11 +995,11 @@ class TicketController extends Controller
             $sqlPeriode = 'SELECT COUNT(*) AS vendus, COALESCE(SUM("prixDuTicket"), 0) AS recettes,
                                    COUNT(*) FILTER (WHERE "etatScanne" = \'scanné\') AS embarques
                             FROM "Tickets"
-                            WHERE statut = \'valide\' AND depart = :gare
+                            WHERE statut = \'valide\' '.$filtreGare.'
                               AND "datePourCalcule" BETWEEN :debut AND :fin';
 
-            $courantRow = DB::selectOne($sqlPeriode, ['gare' => $gare, 'debut' => $courantDebut, 'fin' => $courantFin]);
-            $precedentRow = DB::selectOne($sqlPeriode, ['gare' => $gare, 'debut' => $precedentDebut, 'fin' => $precedentFin]);
+            $courantRow = DB::selectOne($sqlPeriode, array_merge($bindGare, ['debut' => $courantDebut, 'fin' => $courantFin]));
+            $precedentRow = DB::selectOne($sqlPeriode, array_merge($bindGare, ['debut' => $precedentDebut, 'fin' => $precedentFin]));
 
             $courant = [
                 'vendus' => (int) $courantRow->vendus,
@@ -991,23 +1023,23 @@ class TicketController extends Controller
             $parDestinationRows = DB::select(
                 'SELECT destination, COUNT(*) AS vendus, COALESCE(SUM("prixDuTicket"), 0) AS recettes
                  FROM "Tickets"
-                 WHERE statut = \'valide\' AND depart = :gare AND "datePourCalcule" BETWEEN :debut AND :fin
+                 WHERE statut = \'valide\' '.$filtreGare.' AND "datePourCalcule" BETWEEN :debut AND :fin
                  GROUP BY destination ORDER BY vendus DESC',
-                ['gare' => $gare, 'debut' => $courantDebut, 'fin' => $courantFin]
+                array_merge($bindGare, ['debut' => $courantDebut, 'fin' => $courantFin])
             );
             $parTypeRows = DB::select(
                 'SELECT "typeVoyage", COUNT(*) AS vendus, COALESCE(SUM("prixDuTicket"), 0) AS recettes
                  FROM "Tickets"
-                 WHERE statut = \'valide\' AND depart = :gare AND "datePourCalcule" BETWEEN :debut AND :fin
+                 WHERE statut = \'valide\' '.$filtreGare.' AND "datePourCalcule" BETWEEN :debut AND :fin
                  GROUP BY "typeVoyage" ORDER BY vendus DESC',
-                ['gare' => $gare, 'debut' => $courantDebut, 'fin' => $courantFin]
+                array_merge($bindGare, ['debut' => $courantDebut, 'fin' => $courantFin])
             );
             $parHeureRows = DB::select(
                 'SELECT substring("heure" from 1 for 5) AS heure, COUNT(*) AS vendus
                  FROM "Tickets"
-                 WHERE statut = \'valide\' AND depart = :gare AND "datePourCalcule" BETWEEN :debut AND :fin
+                 WHERE statut = \'valide\' '.$filtreGare.' AND "datePourCalcule" BETWEEN :debut AND :fin
                  GROUP BY substring("heure" from 1 for 5) ORDER BY heure ASC',
-                ['gare' => $gare, 'debut' => $courantDebut, 'fin' => $courantFin]
+                array_merge($bindGare, ['debut' => $courantDebut, 'fin' => $courantFin])
             );
 
             // D) Clients actifs : fenetre configurable (Parametres), pas
@@ -1019,8 +1051,8 @@ class TicketController extends Controller
             $actifsRow = DB::selectOne(
                 'SELECT COUNT(DISTINCT "idUtilisateur") AS n
                  FROM "Tickets"
-                 WHERE statut = \'valide\' AND depart = :gare AND "datePourCalcule" BETWEEN :debut AND :fin',
-                ['gare' => $gare, 'debut' => $actifsDebut, 'fin' => $date]
+                 WHERE statut = \'valide\' '.$filtreGare.' AND "datePourCalcule" BETWEEN :debut AND :fin',
+                array_merge($bindGare, ['debut' => $actifsDebut, 'fin' => $date])
             );
 
             return response()->json([
@@ -1058,5 +1090,36 @@ class TicketController extends Controller
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
         }
+    }
+
+    /**
+     * Resout l'Admin courant depuis le bearer token, pour les endpoints
+     * dashboard (synthese_gare, vue_par_depart, tendances_gare). Convention
+     * projet : jamais de 401, toujours HTTP 200 + success:false cote
+     * appelant -- ce helper ne renvoie donc jamais d'erreur HTTP lui-meme.
+     *
+     * Rejette explicitement un token client (tokenable_type
+     * App\Models\Utilisateur) : un token Sanctum valide ne suffit pas, il
+     * doit pointer sur un Admin.
+     *
+     * @return Admin|array{erreur: 'token'|'role'}
+     */
+    private function resoudreAdmin(Request $request): Admin|array
+    {
+        $token = PersonalAccessToken::findToken((string) $request->bearerToken());
+        if (! $token) {
+            return ['erreur' => 'token'];
+        }
+
+        $compte = $token->tokenable;
+        if (! $compte) {
+            return ['erreur' => 'token'];
+        }
+
+        if (! ($compte instanceof Admin)) {
+            return ['erreur' => 'role'];
+        }
+
+        return $compte;
     }
 }
