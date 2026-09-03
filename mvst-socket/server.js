@@ -5,6 +5,7 @@ const { Server } = require('socket.io');
 
 const {
   rejoindreRoom,
+  rejoindreRoomGare,
   chargerPlaces,
   choisirPlace,
   libererPlaces,
@@ -25,6 +26,7 @@ const {
 const app    = express();
 app.use(express.json());
 const reinitialiserPin = require('./handlers/reinitialiser_pin');
+const emitSynthese     = require('./handlers/emit_synthese');
 const server = http.createServer(app);
 const io     = new Server(server, {
   cors: {
@@ -36,6 +38,7 @@ const io     = new Server(server, {
 });
 
 app.use('/reinitialiser_pin', reinitialiserPin);
+app.use('/emit-synthese', emitSynthese(io));
 
 app.get('/health', (req, res) => {
   res.json({
@@ -51,6 +54,9 @@ io.on('connection', (socket) => {
   // ── Places ────────────────────────────────────────────────────────────
   socket.on('rejoindre_room', async (payload) => {
     await rejoindreRoom(socket, payload);
+  });
+  socket.on('rejoindre_room_gare', async (payload) => {
+    await rejoindreRoomGare(socket, payload);
   });
   socket.on('charger_places', async (payload) => {
     await chargerPlaces(socket, payload);

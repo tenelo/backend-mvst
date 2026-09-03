@@ -37,6 +37,10 @@ function construireNomRoom(documentId) {
   return `room_${documentId}`;
 }
 
+function construireNomRoomGare(gare) {
+  return `gare_${gare}`;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ÉVÉNEMENT : rejoindreRoom
 // ─────────────────────────────────────────────────────────────────────────────
@@ -57,6 +61,25 @@ async function rejoindreRoom(socket, payload) {
   } catch (err) {
     console.error('❌ Erreur rejoindreRoom:', err.message);
     socket.emit('erreur', { message: 'Impossible de rejoindre la room' });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ÉVÉNEMENT : rejoindreRoomGare
+// Room par gare (independante des rooms par depart/documentId ci-dessus),
+// pour diffuser des signaux transverses type 'synthese_maj' (cf. emit-synthese).
+// ─────────────────────────────────────────────────────────────────────────────
+async function rejoindreRoomGare(socket, payload) {
+  try {
+    const { gare } = payload;
+    const nomRoomGare = construireNomRoomGare(gare);
+    socket.join(nomRoomGare);
+    socket.data.gareRoom = nomRoomGare;
+    console.log(`👤 Socket ${socket.id} a rejoint : ${nomRoomGare}`);
+    socket.emit('room_gare_rejointe', { gare });
+  } catch (err) {
+    console.error('❌ Erreur rejoindreRoomGare:', err.message);
+    socket.emit('erreur', { message: 'Impossible de rejoindre la room gare' });
   }
 }
 
@@ -412,6 +435,7 @@ async function placeAchetee(socket, payload, io) {
 
 module.exports = {
   rejoindreRoom,
+  rejoindreRoomGare,
   chargerPlaces,
   choisirPlace,
   libererPlaces,
