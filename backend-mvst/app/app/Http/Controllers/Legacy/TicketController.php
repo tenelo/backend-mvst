@@ -955,6 +955,12 @@ class TicketController extends Controller
      * pas codee en dur ; compte des acheteurs distincts (idUtilisateur),
      * pas des tokens (un utilisateur peut avoir plusieurs tokens, deja
      * verifie).
+     *
+     * "nbJours" optionnel dans le payload : whitelist stricte {7, 30, 90},
+     * toute autre valeur ou absence retombe sur 30 (retrocompatible, jamais
+     * d'erreur). Pilote courbeParJour/comparaison/repartitions ; la fenetre
+     * "actifs" (en mois, via Parametres) est independante et n'est pas
+     * affectee par ce parametre.
      */
     public function tendancesGare(Request $request): JsonResponse
     {
@@ -973,16 +979,23 @@ class TicketController extends Controller
             $gare = $admin->role === 'superadmin' ? ($data['gare'] ?? null) : $admin->gare;
             $date = (new \DateTime($data['date']))->format('Y-m-d');
 
-            $courantDebut = (new \DateTime($date))->modify('-29 days')->format('Y-m-d');
+            // Fenetre configurable, whitelist stricte -- toute valeur hors
+            // {7, 30, 90} (ou absente) retombe sur 30 sans jamais d'erreur.
+            $nbJours = 30;
+            if (isset($data['nbJours']) && in_array((int) $data['nbJours'], [7, 30, 90], true)) {
+                $nbJours = (int) $data['nbJours'];
+            }
+
+            $courantDebut = (new \DateTime($date))->modify('-'.($nbJours - 1).' days')->format('Y-m-d');
             $courantFin = $date;
-            $precedentDebut = (new \DateTime($date))->modify('-59 days')->format('Y-m-d');
-            $precedentFin = (new \DateTime($date))->modify('-30 days')->format('Y-m-d');
+            $precedentDebut = (new \DateTime($date))->modify('-'.(2 * $nbJours - 1).' days')->format('Y-m-d');
+            $precedentFin = (new \DateTime($date))->modify('-'.$nbJours.' days')->format('Y-m-d');
 
             $filtreGare = $gare !== null ? 'AND depart = :gare' : '';
             $filtreGareT = $gare !== null ? 'AND t.depart = :gare' : '';
             $bindGare = $gare !== null ? ['gare' => $gare] : [];
 
-            // A) Courbe par jour, 30 jours glissants, serie pleine (jours a
+            // A) Courbe par jour, nbJours glissants, serie pleine (jours a
             // 0 inclus) via generate_series en LEFT JOIN.
             $courbeRows = DB::select(
                 'SELECT gs.jour::date AS jour,
@@ -1071,6 +1084,7 @@ class TicketController extends Controller
                 'success' => true,
                 'gare' => $gare,
                 'date' => $date,
+                'nbJours' => $nbJours,
                 'courbeParJour' => $courbeParJour,
                 'comparaison' => [
                     'courant' => $courant,
