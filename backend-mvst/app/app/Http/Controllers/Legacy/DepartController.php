@@ -273,4 +273,26 @@ class DepartController extends Controller
 
         return ['success' => true, 'supprimes' => $supprimes];
     }
+
+    /**
+     * config_nettoyage_departs.php (nouvel endpoint, pas une migration PHP).
+     * GET, aucun parametre. Lecture seule.
+     *
+     * Lit l'heure cible du nettoyage quotidien des Departs vides depuis
+     * "Parametres" (cle nettoyage_departs_heure), avec '00:10' en repli si
+     * la ligne est absente -- appele par mvst-socket (server.js) pour
+     * rendre cette heure modifiable a chaud (simple UPDATE SQL), sans
+     * toucher au code Node.
+     */
+    public function configNettoyageDeparts(): JsonResponse
+    {
+        try {
+            $heureRow = DB::selectOne('SELECT valeur FROM "Parametres" WHERE cle = :cle', ['cle' => 'nettoyage_departs_heure']);
+            $heure = $heureRow ? $heureRow->valeur : '00:10';
+
+            return response()->json(['success' => true, 'heure' => $heure], 200);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
+        }
+    }
 }

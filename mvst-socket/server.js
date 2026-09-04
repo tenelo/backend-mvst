@@ -134,18 +134,32 @@ lancerPurgePeriodique();
 setInterval(lancerPurgePeriodique, PURGE_INTERVALLE_MS);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// NETTOYAGE QUOTIDIEN DES DEPARTS VIDES (une fois par jour, vers 00:10)
+// NETTOYAGE QUOTIDIEN DES DEPARTS VIDES (une fois par jour, heure configurable)
 // ─────────────────────────────────────────────────────────────────────────────
 const VERIF_NETTOYAGE_DEPARTS_MS = 5 * 60 * 1000; // verifie toutes les 5 min
 
-// Heure cible en dur pour cette v1 (approche la plus simple, sans casser le
-// patron existant) -- la cle Parametres "nettoyage_departs_heure" existe
-// deja en base pour coherence/evolution future, mais n'est pas relue ici.
 // Conteneur en UTC, qui correspond a l'heure locale Cote d'Ivoire (UTC+0,
 // pas de changement d'heure saisonnier).
-const NETTOYAGE_DEPARTS_HEURE = '00:10'; // format HH:MM
+const NETTOYAGE_DEPARTS_HEURE_DEFAUT = '00:10'; // repli si Parametres illisible
 
 let dernierNettoyageDepartsJour = null; // 'YYYY-MM-DD' du dernier nettoyage effectue
+
+// Lit l'heure cible depuis Parametres (via Laravel, le Node n'accede pas a
+// Postgres directement) -- modifiable a chaud par un simple UPDATE SQL, sans
+// toucher au code. Best-effort strict : toute erreur retombe sur le repli en
+// dur, jamais de plantage.
+async function recupererHeureNettoyageDeparts() {
+  try {
+    const reponse = await fetch('http://nginx-mvst/config_nettoyage_departs.php');
+    const resultat = await reponse.json();
+    if (resultat.success && typeof resultat.heure === 'string') {
+      return resultat.heure;
+    }
+  } catch (err) {
+    console.error('❌ Erreur lecture config nettoyage departs (repli '+NETTOYAGE_DEPARTS_HEURE_DEFAUT+'):', err.message);
+  }
+  return NETTOYAGE_DEPARTS_HEURE_DEFAUT;
+}
 
 async function verifierNettoyageDepartsQuotidien() {
   const maintenant = new Date();
@@ -155,8 +169,9 @@ async function verifierNettoyageDepartsQuotidien() {
     return; // deja nettoye aujourd'hui
   }
 
+  const heureCible = await recupererHeureNettoyageDeparts();
   const heureCourante = maintenant.toTimeString().slice(0, 5); // 'HH:MM'
-  if (heureCourante < NETTOYAGE_DEPARTS_HEURE) {
+  if (heureCourante < heureCible) {
     return; // creneau cible pas encore atteint
   }
 
@@ -171,7 +186,7 @@ async function verifierNettoyageDepartsQuotidien() {
     });
     const resultat = await reponse.json();
     dernierNettoyageDepartsJour = jourCourant;
-    console.log(`🧹 Nettoyage departs vides: ${resultat.supprimes ?? 0} depart(s) supprime(s)`);
+    console.log(`🧹 Nettoyage departs vides (cible ${heureCible}): ${resultat.supprimes ?? 0} depart(s) supprime(s)`);
   } catch (err) {
     console.error('❌ Erreur nettoyage departs vides:', err.message);
   }
