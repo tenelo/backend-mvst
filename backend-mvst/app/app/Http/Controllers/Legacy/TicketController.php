@@ -905,6 +905,9 @@ class TicketController extends Controller
                      ON t."documentId" = d."documentId" AND t.statut = \'valide\'
                  WHERE d."dateVoyage" = :date
                    '.$filtreGareD.'
+                   AND NOT ( (d."placesChoisies" IS NULL OR d."placesChoisies" = \'[]\')
+                             AND NOT EXISTS (SELECT 1 FROM "Tickets" tx
+                                             WHERE tx."documentId" = d."documentId") )
                  GROUP BY d."documentId", d."heureDeDepart", d.destination, d."typeVoyage"
                  ORDER BY d."heureDeDepart" ASC',
                 array_merge($bindGare, ['date' => $date])

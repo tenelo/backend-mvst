@@ -35,6 +35,9 @@ class DepartController extends Controller
                 FROM "Departs" d
                 WHERE "dateDeDepart" = :date
                 AND depart = :gare
+                AND NOT ( (d."placesChoisies" IS NULL OR d."placesChoisies" = \'[]\')
+                          AND NOT EXISTS (SELECT 1 FROM "Tickets" tx
+                                          WHERE tx."documentId" = d."documentId") )
                 GROUP BY "documentId", "heureDeDepart", "dateDeDepart", depart, destination, "typeVoyage"
                 ORDER BY "heureDeDepart" ASC',
                 ['date' => $data['date'], 'gare' => $data['gare']]
