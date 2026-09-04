@@ -3,18 +3,26 @@
 namespace App\Http\Controllers\Legacy;
 
 use App\Http\Controllers\Controller;
+use App\Services\ResolveurAdminService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class AdminController extends Controller
 {
+    public function __construct(private readonly ResolveurAdminService $resolveur) {}
+
     /**
      * Equivalent de listeAdmins.php.
      * GET, sans parametre. Liste tous les admins.
+     * RESERVE SUPERADMIN (ecran gestion des admins).
      */
-    public function liste(): JsonResponse
+    public function liste(Request $request): JsonResponse
     {
+        if (! $this->resolveur->exigerSuperadmin($request)) {
+            return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
+        }
+
         try {
             $admins = DB::select(
                 'SELECT id, telephone, role, gare, nom, prenoms, mail, "dateDeCreation" FROM "Admins" ORDER BY "dateDeCreation" DESC'
@@ -39,6 +47,10 @@ class AdminController extends Controller
      */
     public function ajouterAdmin(Request $request): JsonResponse
     {
+        if (! $this->resolveur->exigerSuperadmin($request)) {
+            return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
+        }
+
         try {
             $data = json_decode($request->getContent(), true);
 
@@ -79,6 +91,10 @@ class AdminController extends Controller
      */
     public function ajouterNumero(Request $request): JsonResponse
     {
+        if (! $this->resolveur->exigerSuperadmin($request)) {
+            return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
+        }
+
         try {
             $data = json_decode($request->getContent(), true);
 
@@ -119,6 +135,10 @@ class AdminController extends Controller
      */
     public function modifierNumero(Request $request): JsonResponse
     {
+        if (! $this->resolveur->exigerSuperadmin($request)) {
+            return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
+        }
+
         try {
             $data = json_decode($request->getContent(), true);
 
@@ -158,6 +178,10 @@ class AdminController extends Controller
      */
     public function supprimerNumero(Request $request): JsonResponse
     {
+        if (! $this->resolveur->exigerSuperadmin($request)) {
+            return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
+        }
+
         try {
             $data = json_decode($request->getContent(), true);
 
@@ -225,6 +249,10 @@ class AdminController extends Controller
      */
     public function verifierTelephone(Request $request): JsonResponse
     {
+        if (! $this->resolveur->exigerSuperadmin($request)) {
+            return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
+        }
+
         try {
             $data = json_decode($request->getContent(), true);
             if (! isset($data['telephone'])) {
@@ -256,6 +284,10 @@ class AdminController extends Controller
      */
     public function recupererGare(Request $request): JsonResponse
     {
+        if (! $this->resolveur->resoudreAdmin($request)) {
+            return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
+        }
+
         try {
             $data = json_decode($request->getContent(), true);
 
