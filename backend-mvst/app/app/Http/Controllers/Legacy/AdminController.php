@@ -25,7 +25,7 @@ class AdminController extends Controller
 
         try {
             $admins = DB::select(
-                'SELECT id, telephone, role, gare, nom, prenoms, mail, "dateDeCreation" FROM "Admins" ORDER BY "dateDeCreation" DESC'
+                'SELECT id, telephone, role, gare, nom, prenoms, mail, "dateDeCreation", "peutGererSuggestions" FROM "Admins" ORDER BY "dateDeCreation" DESC'
             );
 
             return response()->json(['success' => true, 'admins' => $admins], 200);
