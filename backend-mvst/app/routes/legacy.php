@@ -33,6 +33,7 @@ Route::post('recuperationHeure.php', [DiversController::class, 'recuperationHeur
 Route::post('ajouterAdmin.php', [AdminController::class, 'ajouterAdmin']);
 Route::post('ajouterNumeroAdmin.php', [AdminController::class, 'ajouterNumero']);
 Route::post('modifierNumeroAdmin.php', [AdminController::class, 'modifierNumero']);
+Route::post('modifierPermissionSuggestions.php', [AdminController::class, 'modifierPermissionSuggestions']);
 Route::post('supprimerNumeroAdmin.php', [AdminController::class, 'supprimerNumero']);
 Route::post('verifierAdmin.php', [AdminController::class, 'verifier']);
 Route::post('verifierTelephoneAdmin.php', [AdminController::class, 'verifierTelephone']);
