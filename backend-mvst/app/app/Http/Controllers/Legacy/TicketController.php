@@ -1122,6 +1122,90 @@ class TicketController extends Controller
     }
 
     /**
+     * synthese_toutes_gares.php (nouvel endpoint, pas une migration PHP).
+     * POST { "date": "YYYY-MM-DD" }. Reserve superadmin : un admin de gare
+     * normal (role='admin') est explicitement refuse, meme si son token est
+     * valide -- ce n'est pas une simple absence de filtre gare, c'est un
+     * controle d'acces distinct de resoudreAdmin().
+     *
+     * Chiffres du jour ventiles par gare (GROUP BY depart), pour le tableau
+     * comparatif superadmin. Meme source que synthese_gare (statut='valide',
+     * datePourCalcule = date de voyage), pour rester coherent avec le
+     * bandeau du jour existant.
+     */
+    public function syntheseToutesGares(Request $request): JsonResponse
+    {
+        try {
+            $data = json_decode($request->getContent(), true);
+
+            $admin = $this->resoudreAdmin($request);
+            if (! ($admin instanceof Admin)) {
+                return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
+            }
+
+            if ($admin->role !== 'superadmin') {
+                return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
+            }
+
+            if (! isset($data['date'])) {
+                return response()->json(['success' => false, 'message' => 'Paramètres manquants'], 200);
+            }
+
+            $date = (new \DateTime($data['date']))->format('Y-m-d');
+
+            $rows = DB::select(
+                'SELECT depart,
+                        COUNT(*) AS vendus,
+                        COALESCE(SUM("prixDuTicket"), 0) AS recettes,
+                        COUNT(*) FILTER (WHERE "etatScanne" = \'scanné\') AS scannes
+                 FROM "Tickets"
+                 WHERE statut = \'valide\' AND "datePourCalcule" = :date
+                 GROUP BY depart
+                 ORDER BY vendus DESC',
+                ['date' => $date]
+            );
+
+            $totalVendus = 0;
+            $totalRecettes = 0;
+            $totalScannes = 0;
+
+            $gares = array_map(function ($r) use (&$totalVendus, &$totalRecettes, &$totalScannes) {
+                $vendus = (int) $r->vendus;
+                $recettes = (int) $r->recettes;
+                $scannes = (int) $r->scannes;
+
+                $totalVendus += $vendus;
+                $totalRecettes += $recettes;
+                $totalScannes += $scannes;
+
+                return [
+                    'gare' => $r->depart,
+                    'vendus' => $vendus,
+                    'recettes' => $recettes,
+                    'scannes' => $scannes,
+                    'tauxEmbarquement' => $vendus > 0 ? round($scannes / $vendus * 100, 1) : 0,
+                ];
+            }, $rows);
+
+            $totaux = [
+                'vendus' => $totalVendus,
+                'recettes' => $totalRecettes,
+                'scannes' => $totalScannes,
+                'tauxEmbarquement' => $totalVendus > 0 ? round($totalScannes / $totalVendus * 100, 1) : 0,
+            ];
+
+            return response()->json([
+                'success' => true,
+                'date' => $date,
+                'gares' => $gares,
+                'totaux' => $totaux,
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
+        }
+    }
+
+    /**
      * Resout l'Admin courant depuis le bearer token, pour les endpoints
      * dashboard (synthese_gare, vue_par_depart, tendances_gare). Convention
      * projet : jamais de 401, toujours HTTP 200 + success:false cote
