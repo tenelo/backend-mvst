@@ -175,4 +175,102 @@ class DepartController extends Controller
 
         return ['success' => true, 'nettoyees' => $nettoyees, 'delaiMinutes' => $delaiMinutes];
     }
+
+    /**
+     * Equivalent de process_places_temporaires.php, meme patron applique aux
+     * Departs vides : POST, aucun parametre attendu.
+     */
+    public function processDepartsVides(): JsonResponse
+    {
+        try {
+            $resultat = self::purgerDepartsVides();
+
+            return response()->json([
+                'success' => $resultat['success'],
+                'supprimes' => $resultat['supprimes'],
+            ], 200);
+        } catch (\Exception $e) {
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
+
+            return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
+        }
+    }
+
+    /**
+     * Supprime les Departs "vides" (placesChoisies NULL ou '[]') qui n'ont
+     * AUCUN ticket rattache, quel que soit son statut -- jamais seulement
+     * statut='valide' : la contrainte FK Tickets_documentId_fkey est en
+     * NO ACTION, mais le critere metier lui-meme doit deja exclure tout
+     * Departs ayant ne serait-ce qu'un ticket historique/invalide (verifie
+     * en amont : aucun des candidats actuels n'a de ticket d'aucun statut,
+     * mais rien ne garantit que ce sera toujours le cas).
+     *
+     * Meme patron que purgerPlacesTemporaires : un Departs a la fois, sa
+     * propre transaction, verrou FOR UPDATE, erreur isolee ne bloque pas le
+     * reste du lot. Ajout par rapport au patron places : re-verification du
+     * critere SOUS le verrou juste avant le DELETE (la ligne a pu changer
+     * entre la selection initiale et ce point -- nouvelle place choisie ou
+     * ticket cree entre-temps -- irreversible, donc pas de confiance dans
+     * une lecture perimee ici).
+     *
+     * @return array{success: bool, supprimes: int}
+     */
+    public static function purgerDepartsVides(): array
+    {
+        $departsVides = DB::select(
+            'SELECT "documentId" FROM "Departs" d
+             WHERE (d."placesChoisies" IS NULL OR d."placesChoisies" = \'[]\')
+               AND NOT EXISTS (SELECT 1 FROM "Tickets" t WHERE t."documentId" = d."documentId")'
+        );
+
+        if (empty($departsVides)) {
+            return ['success' => true, 'supprimes' => 0];
+        }
+
+        $supprimes = 0;
+
+        foreach ($departsVides as $depart) {
+            $documentId = $depart->documentId;
+
+            DB::beginTransaction();
+            try {
+                $row = DB::selectOne(
+                    'SELECT "placesChoisies" FROM "Departs" WHERE "documentId" = :documentId FOR UPDATE',
+                    ['documentId' => $documentId]
+                );
+
+                if (! $row || ! ($row->placesChoisies === null || $row->placesChoisies === '[]')) {
+                    DB::rollBack();
+
+                    continue;
+                }
+
+                $ticketExiste = DB::selectOne(
+                    'SELECT COUNT(*) as total FROM "Tickets" WHERE "documentId" = :documentId',
+                    ['documentId' => $documentId]
+                );
+
+                if ((int) $ticketExiste->total > 0) {
+                    DB::rollBack();
+
+                    continue;
+                }
+
+                DB::delete('DELETE FROM "Departs" WHERE "documentId" = :documentId', ['documentId' => $documentId]);
+
+                DB::commit();
+                $supprimes++;
+            } catch (\Throwable $e) {
+                DB::rollBack();
+                \Log::error('Erreur purge depart vide', [
+                    'documentId' => $documentId,
+                    'erreur' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return ['success' => true, 'supprimes' => $supprimes];
+    }
 }

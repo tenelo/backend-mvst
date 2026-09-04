@@ -132,3 +132,49 @@ async function lancerPurgePeriodique() {
 
 lancerPurgePeriodique();
 setInterval(lancerPurgePeriodique, PURGE_INTERVALLE_MS);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NETTOYAGE QUOTIDIEN DES DEPARTS VIDES (une fois par jour, vers 00:10)
+// ─────────────────────────────────────────────────────────────────────────────
+const VERIF_NETTOYAGE_DEPARTS_MS = 5 * 60 * 1000; // verifie toutes les 5 min
+
+// Heure cible en dur pour cette v1 (approche la plus simple, sans casser le
+// patron existant) -- la cle Parametres "nettoyage_departs_heure" existe
+// deja en base pour coherence/evolution future, mais n'est pas relue ici.
+// Conteneur en UTC, qui correspond a l'heure locale Cote d'Ivoire (UTC+0,
+// pas de changement d'heure saisonnier).
+const NETTOYAGE_DEPARTS_HEURE = '00:10'; // format HH:MM
+
+let dernierNettoyageDepartsJour = null; // 'YYYY-MM-DD' du dernier nettoyage effectue
+
+async function verifierNettoyageDepartsQuotidien() {
+  const maintenant = new Date();
+  const jourCourant = maintenant.toISOString().slice(0, 10);
+
+  if (dernierNettoyageDepartsJour === jourCourant) {
+    return; // deja nettoye aujourd'hui
+  }
+
+  const heureCourante = maintenant.toTimeString().slice(0, 5); // 'HH:MM'
+  if (heureCourante < NETTOYAGE_DEPARTS_HEURE) {
+    return; // creneau cible pas encore atteint
+  }
+
+  // heureCourante >= cible (comparaison lexicographique valide sur "HH:MM")
+  // ET pas deja fait aujourd'hui -> declenche. Au plus ~5 min de retard sur
+  // la cible exacte, selon l'alignement du setInterval avec l'horloge --
+  // une egalite stricte sur "HH:MM" pourrait manquer le creneau si le
+  // sondage toutes les 5 min ne tombe pas exactement sur la bonne minute.
+  try {
+    const reponse = await fetch('http://nginx-mvst/process_departs_vides.php', {
+      method: 'POST',
+    });
+    const resultat = await reponse.json();
+    dernierNettoyageDepartsJour = jourCourant;
+    console.log(`🧹 Nettoyage departs vides: ${resultat.supprimes ?? 0} depart(s) supprime(s)`);
+  } catch (err) {
+    console.error('❌ Erreur nettoyage departs vides:', err.message);
+  }
+}
+
+setInterval(verifierNettoyageDepartsQuotidien, VERIF_NETTOYAGE_DEPARTS_MS);
