@@ -45,4 +45,46 @@ router.post('/nouvelle', async (req, res) => {
   }
 });
 
+// POST /notif-suggestions/reponse  { idutilisateur, reponse }
+// Notifie l'utilisateur auteur qu'une reponse a ete apportee a sa suggestion.
+router.post('/reponse', async (req, res) => {
+  const { idutilisateur, reponse } = req.body || {};
+
+  if (!idutilisateur) {
+    return res.status(200).json({ success: false, message: 'idutilisateur manquant' });
+  }
+
+  const client = await pool.connect();
+  try {
+    const dest = await client.query(
+      `SELECT token FROM "DeviceTokens"
+       WHERE type_compte = 'utilisateur' AND id_compte = $1`,
+      [String(idutilisateur)]
+    );
+
+    const tokens = dest.rows.map((r) => r.token);
+    if (tokens.length === 0) {
+      return res.status(200).json({ success: true, envoyes: 0, message: 'Aucun destinataire' });
+    }
+
+    const corps = reponse && reponse.length > 0
+      ? (reponse.length > 120 ? reponse.substring(0, 117) + '...' : reponse)
+      : 'Votre suggestion a ete traitee';
+
+    const r = await envoyerNotification(
+      tokens,
+      'Reponse a votre suggestion',
+      corps,
+      { type: 'reponse_suggestion' }
+    );
+
+    return res.status(200).json({ success: true, envoyes: r.succes, echecs: r.echecs, purges: r.invalidesPurges });
+  } catch (err) {
+    console.error('Erreur notif reponse suggestion:', err);
+    return res.status(200).json({ success: false, message: 'Erreur serveur' });
+  } finally {
+    client.release();
+  }
+});
+
 module.exports = router;

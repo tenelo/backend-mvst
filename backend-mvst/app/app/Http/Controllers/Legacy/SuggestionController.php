@@ -114,6 +114,25 @@ class SuggestionController extends Controller
                         DB::update('UPDATE "Suggestions" SET statut = :statut WHERE id = :id', ['statut' => $statut, 'id' => $id]);
                         $response = response()->json(['success' => true], 200);
                     }
+                } elseif ($action === 'repondre') {
+                    $id = (int) ($input['id'] ?? 0);
+                    $reponse = trim($input['reponse'] ?? '');
+
+                    if ($id <= 0 || empty($reponse)) {
+                        $response = response()->json(['success' => false, 'error' => 'ID et reponse requis'], 200);
+                    } else {
+                        DB::update(
+                            'UPDATE "Suggestions" SET reponse = :reponse, statut = :statut WHERE id = :id',
+                            ['reponse' => $reponse, 'statut' => 'traite', 'id' => $id]
+                        );
+
+                        $rows = DB::select('SELECT idutilisateur FROM "Suggestions" WHERE id = :id', ['id' => $id]);
+                        $idutilisateur = ! empty($rows) ? (string) $rows[0]->idutilisateur : '';
+
+                        $this->notifierReponseSuggestion($idutilisateur, $reponse);
+
+                        $response = response()->json(['success' => true], 200);
+                    }
                 } elseif ($action === 'delete') {
                     $id = (int) ($input['id'] ?? 0);
                     $idutilisateur = trim($input['idutilisateur'] ?? '');
@@ -181,6 +200,28 @@ class SuggestionController extends Controller
             @file_get_contents('http://socket-mvst:3000/notif-suggestions/nouvelle', false, $contexte);
         } catch (\Throwable $e) {
             // Best-effort : la notif est perdue ce coup-ci, la suggestion reste enregistree.
+        }
+    }
+
+    private function notifierReponseSuggestion(string $idutilisateur, string $reponse): void
+    {
+        if (empty($idutilisateur)) {
+            return;
+        }
+
+        try {
+            $contexte = stream_context_create([
+                'http' => [
+                    'method' => 'POST',
+                    'header' => "Content-Type: application/json\r\n",
+                    'content' => json_encode(['idutilisateur' => $idutilisateur, 'reponse' => $reponse]),
+                    'timeout' => 2,
+                ],
+            ]);
+
+            @file_get_contents('http://socket-mvst:3000/notif-suggestions/reponse', false, $contexte);
+        } catch (\Throwable $e) {
+            // Best-effort : la notif est perdue ce coup-ci, la reponse reste enregistree.
         }
     }
 }
