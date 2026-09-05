@@ -100,6 +100,8 @@ class SuggestionController extends Controller
                             ['nom' => $nom, 'telephone' => $telephone, 'message' => $message, 'categorie' => $categorie, 'idutilisateur' => $idutilisateur]
                         );
 
+                        $this->notifierNouvelleSuggestion($message, $categorie);
+
                         $response = response()->json(['success' => true, 'id' => (int) $row->id, 'createdat' => $row->createdat], 200);
                     }
                 } elseif ($action === 'update_statut') {
@@ -162,5 +164,23 @@ class SuggestionController extends Controller
 
             return $r;
         }, $rows);
+    }
+
+    private function notifierNouvelleSuggestion(string $message, string $categorie): void
+    {
+        try {
+            $contexte = stream_context_create([
+                'http' => [
+                    'method' => 'POST',
+                    'header' => "Content-Type: application/json\r\n",
+                    'content' => json_encode(['message' => $message, 'categorie' => $categorie]),
+                    'timeout' => 2,
+                ],
+            ]);
+
+            @file_get_contents('http://socket-mvst:3000/notif-suggestions/nouvelle', false, $contexte);
+        } catch (\Throwable $e) {
+            // Best-effort : la notif est perdue ce coup-ci, la suggestion reste enregistree.
+        }
     }
 }
