@@ -29,7 +29,12 @@ class DepartController extends Controller
                     "dateDeDepart",
                     depart,
                     destination,
-                    "typeVoyage",
+                    COALESCE(
+                        (SELECT CASE WHEN bool_or(t2."typeVoyage" = \'vip\') THEN \'vip\' ELSE \'standard\' END
+                         FROM "Tickets" t2
+                         WHERE t2."documentId" = d."documentId" AND t2.statut = \'valide\'),
+                        d."typeVoyage"
+                    ) AS "typeVoyage",
                     (SELECT COUNT(*) FROM "Tickets" t
                      WHERE t."documentId" = d."documentId") AS "nombreDePlacesChoisies"
                 FROM "Departs" d
@@ -38,7 +43,7 @@ class DepartController extends Controller
                 AND NOT ( (d."placesChoisies" IS NULL OR d."placesChoisies" = \'[]\')
                           AND NOT EXISTS (SELECT 1 FROM "Tickets" tx
                                           WHERE tx."documentId" = d."documentId") )
-                GROUP BY "documentId", "heureDeDepart", "dateDeDepart", depart, destination, "typeVoyage"
+                GROUP BY "documentId", "heureDeDepart", "dateDeDepart", depart, destination, d."typeVoyage"
                 ORDER BY "heureDeDepart" ASC',
                 ['date' => $data['date'], 'gare' => $data['gare']]
             );
