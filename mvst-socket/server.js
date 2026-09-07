@@ -29,6 +29,7 @@ const reinitialiserPin = require('./handlers/reinitialiser_pin');
 const emitSynthese     = require('./handlers/emit_synthese');
 const deviceTokens     = require('./handlers/device_tokens');
 const notifSuggestions = require('./handlers/notif_suggestions');
+const notifDiffusion   = require('./handlers/notif_diffusion');
 const server = http.createServer(app);
 const io     = new Server(server, {
   cors: {
@@ -43,6 +44,7 @@ app.use('/reinitialiser_pin', reinitialiserPin);
 app.use('/emit-synthese', emitSynthese(io));
 app.use('/device-tokens', deviceTokens);
 app.use('/notif-suggestions', notifSuggestions);
+app.use('/notif-diffusion', notifDiffusion);
 
 app.get('/health', (req, res) => {
   res.json({
