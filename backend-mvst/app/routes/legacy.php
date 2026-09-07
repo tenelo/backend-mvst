@@ -39,6 +39,7 @@ Route::post('modifierPermissionNotificationsPush.php', [AdminController::class, 
 Route::post('envoyerNotificationDiffusion.php', [NotificationController::class, 'envoyerDiffusion']);
 Route::post('compterNotificationDiffusion.php', [NotificationController::class, 'compterDiffusion']);
 Route::post('historiqueNotificationDiffusion.php', [NotificationController::class, 'historiqueDiffusion']);
+Route::post('rechercheUtilisateurs.php', [UtilisateurController::class, 'rechercheUtilisateurs']);
 Route::post('supprimerNumeroAdmin.php', [AdminController::class, 'supprimerNumero']);
 Route::post('verifierAdmin.php', [AdminController::class, 'verifier']);
 Route::post('verifierTelephoneAdmin.php', [AdminController::class, 'verifierTelephone']);

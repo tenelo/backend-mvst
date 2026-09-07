@@ -3,12 +3,16 @@
 namespace App\Http\Controllers\Legacy;
 
 use App\Http\Controllers\Controller;
+use App\Services\ResolveurAdminService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class UtilisateurController extends Controller
 {
+    public function __construct(private ResolveurAdminService $resolveur)
+    {
+    }
     /**
      * Equivalent de get_utilisateur.php.
      * GET, query string "id" (en realite l'idUtilisateur, pas la cle numerique).
@@ -223,6 +227,42 @@ class UtilisateurController extends Controller
             return response()->json(['success' => true, 'message' => 'Profil mis à jour avec succès'], 200);
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 200);
+        }
+    }
+
+    /**
+     * Recherche d'utilisateurs par nom, prenoms ou telephone.
+     * Reserve superadmin OU admin avec peutGererLesNotificationsPush.
+     * POST JSON : { terme }. Renvoie jusqu'a 30 resultats.
+     */
+    public function rechercheUtilisateurs(Request $request): JsonResponse
+    {
+        $admin = $this->resolveur->resoudreAdmin($request);
+        if (! $admin || ($admin->role !== 'superadmin' && ! $admin->peutGererLesNotificationsPush)) {
+            return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
+        }
+
+        try {
+            $data = json_decode($request->getContent(), true);
+            $terme = trim($data['terme'] ?? '');
+
+            if ($terme === '') {
+                return response()->json(['success' => true, 'utilisateurs' => []], 200);
+            }
+
+            $like = '%'.$terme.'%';
+            $utilisateurs = DB::select(
+                'SELECT "idUtilisateur", nom, prenoms, telephone
+                 FROM "Utilisateurs"
+                 WHERE nom ILIKE :t1 OR prenoms ILIKE :t2 OR telephone ILIKE :t3
+                 ORDER BY nom ASC
+                 LIMIT 30',
+                ['t1' => $like, 't2' => $like, 't3' => $like]
+            );
+
+            return response()->json(['success' => true, 'utilisateurs' => $utilisateurs], 200);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
         }
     }
 }
