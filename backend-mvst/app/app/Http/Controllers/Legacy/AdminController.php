@@ -274,7 +274,7 @@ class AdminController extends Controller
             }
 
             $rows = DB::select(
-                'SELECT "idUtilisateur", gare, role, nom FROM "Admins" WHERE telephone = :telephone',
+                'SELECT "idUtilisateur", gare, role, nom, "peutGererLesNotificationsPush" FROM "Admins" WHERE telephone = :telephone',
                 ['telephone' => $data['telephone']]
             );
             $admin = $rows[0] ?? null;
@@ -290,6 +290,7 @@ class AdminController extends Controller
                 'uid' => $admin->idUtilisateur,
                 'role' => $admin->role,
                 'compteExiste' => ! empty($admin->nom),
+                'peutGererLesNotificationsPush' => (bool) $admin->peutGererLesNotificationsPush,
             ], 200);
         } catch (\PDOException $e) {
             return response()->json(['success' => false, 'message' => 'PDO: '.$e->getMessage()], 200);
