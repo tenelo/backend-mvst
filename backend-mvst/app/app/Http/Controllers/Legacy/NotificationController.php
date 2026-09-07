@@ -74,4 +74,58 @@ class NotificationController extends Controller
             return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
         }
     }
+
+    /**
+     * Compte les destinataires d'une cible sans envoyer.
+     * Meme protection que envoyerDiffusion. Relaie vers socket /notif-diffusion/compter.
+     * POST JSON : { cible, gare?, idUtilisateurs? }
+     */
+    public function compterDiffusion(Request $request): JsonResponse
+    {
+        $admin = $this->resolveur->resoudreAdmin($request);
+        if (! $admin || ($admin->role !== 'superadmin' && ! $admin->peutGererLesNotificationsPush)) {
+            return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
+        }
+
+        try {
+            $data = json_decode($request->getContent(), true);
+
+            $cible = $data['cible'] ?? null;
+            if (! $cible) {
+                return response()->json(['success' => false, 'message' => 'cible requise'], 200);
+            }
+
+            $payload = ['cible' => $cible];
+            if (isset($data['gare'])) {
+                $payload['gare'] = $data['gare'];
+            }
+            if (isset($data['idUtilisateurs'])) {
+                $payload['idUtilisateurs'] = $data['idUtilisateurs'];
+            }
+
+            $contexte = stream_context_create([
+                'http' => [
+                    'method' => 'POST',
+                    'header' => "Content-Type: application/json\r\n",
+                    'content' => json_encode($payload),
+                    'timeout' => 15,
+                ],
+            ]);
+
+            $reponse = @file_get_contents('http://socket-mvst:3000/notif-diffusion/compter', false, $contexte);
+
+            if ($reponse === false) {
+                return response()->json(['success' => false, 'message' => 'Service de notification injoignable'], 200);
+            }
+
+            $decoded = json_decode($reponse, true);
+            if (! is_array($decoded)) {
+                return response()->json(['success' => false, 'message' => 'Réponse du service invalide'], 200);
+            }
+
+            return response()->json($decoded, 200);
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
+        }
+    }
 }

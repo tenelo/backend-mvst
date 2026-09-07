@@ -114,4 +114,40 @@ router.post('/envoyer', async (req, res) => {
   }
 });
 
+// POST /notif-diffusion/compter
+// Body : { cible, gare?, idUtilisateurs? }
+// Resout la cible et compte destinataires + appareils joignables, SANS envoyer.
+router.post('/compter', async (req, res) => {
+  const { cible, gare, idUtilisateurs } = req.body || {};
+
+  if (!cible) {
+    return res.status(200).json({ success: false, message: 'cible requise' });
+  }
+
+  const client = await pool.connect();
+  try {
+    const ids = await resoudreIdUtilisateurs(client, cible, { gare, idUtilisateurs });
+    if (ids.length === 0) {
+      return res.status(200).json({ success: true, destinataires: 0, appareils: 0 });
+    }
+
+    const dest = await client.query(
+      `SELECT COUNT(*)::int AS n FROM "DeviceTokens"
+       WHERE type_compte = 'utilisateur' AND id_compte = ANY($1)`,
+      [ids]
+    );
+
+    return res.status(200).json({
+      success: true,
+      destinataires: ids.length,
+      appareils: dest.rows[0].n,
+    });
+  } catch (err) {
+    console.error('Erreur notif comptage:', err);
+    return res.status(200).json({ success: false, message: 'Erreur serveur' });
+  } finally {
+    client.release();
+  }
+});
+
 module.exports = router;
