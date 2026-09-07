@@ -25,7 +25,7 @@ class AdminController extends Controller
 
         try {
             $admins = DB::select(
-                'SELECT id, telephone, role, gare, nom, prenoms, mail, "dateDeCreation", "peutGererSuggestions" FROM "Admins" ORDER BY "dateDeCreation" DESC'
+                'SELECT id, telephone, role, gare, nom, prenoms, mail, "dateDeCreation", "peutGererSuggestions", "peutGererLesNotificationsPush" FROM "Admins" ORDER BY "dateDeCreation" DESC'
             );
 
             return response()->json(['success' => true, 'admins' => $admins], 200);
@@ -186,6 +186,36 @@ class AdminController extends Controller
 
             $affected = DB::update(
                 'UPDATE "Admins" SET "peutGererSuggestions" = :valeur WHERE id = :id',
+                ['valeur' => $valeur, 'id' => $data['id']]
+            );
+
+            if ($affected === 0) {
+                return response()->json(['success' => false, 'message' => 'Admin introuvable'], 200);
+            }
+
+            return response()->json(['success' => true, 'message' => 'Permission mise à jour'], 200);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
+        }
+    }
+
+    public function modifierPermissionNotificationsPush(Request $request): JsonResponse
+    {
+        if (! $this->resolveur->exigerSuperadmin($request)) {
+            return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
+        }
+
+        try {
+            $data = json_decode($request->getContent(), true);
+
+            if (! isset($data['id']) || ! isset($data['peutGererLesNotificationsPush'])) {
+                return response()->json(['success' => false, 'message' => 'Paramètres manquants'], 200);
+            }
+
+            $valeur = filter_var($data['peutGererLesNotificationsPush'], FILTER_VALIDATE_BOOLEAN);
+
+            $affected = DB::update(
+                'UPDATE "Admins" SET "peutGererLesNotificationsPush" = :valeur WHERE id = :id',
                 ['valeur' => $valeur, 'id' => $data['id']]
             );
 
