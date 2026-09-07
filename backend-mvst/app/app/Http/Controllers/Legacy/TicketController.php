@@ -247,9 +247,10 @@ class TicketController extends Controller
             }
 
             $documentId = $data['documentId'];
+            $idUtilisateur = $data['idUtilisateur'] ?? null;
 
             $places = DB::select(
-                'SELECT nom, telephone, depart, destination, place
+                'SELECT nom, telephone, depart, destination, place, "idUtilisateur"
                  FROM "Tickets"
                  WHERE "documentId" = :documentId AND statut = \'valide\'
                  ORDER BY place ASC',
@@ -257,6 +258,17 @@ class TicketController extends Controller
             );
 
             $placesVendues = array_map(fn ($p) => (int) $p->place, $places);
+
+            $placesFormatees = array_map(function ($p) use ($idUtilisateur) {
+                return (object) [
+                    'nom' => $p->nom,
+                    'telephone' => $p->telephone,
+                    'depart' => $p->depart,
+                    'destination' => $p->destination,
+                    'place' => (int) $p->place,
+                    'estAMoi' => ($idUtilisateur !== null && $p->idUtilisateur === $idUtilisateur),
+                ];
+            }, $places);
 
             $departRow = DB::selectOne(
                 'SELECT "placesChoisies" FROM "Departs" WHERE "documentId" = :documentId',
@@ -270,18 +282,19 @@ class TicketController extends Controller
                 foreach ($placesEnCours as $place) {
                     $place = (int) $place;
                     if (! in_array($place, $placesVendues, true)) {
-                        $places[] = (object) [
+                        $placesFormatees[] = (object) [
                             'nom' => null,
                             'telephone' => null,
                             'depart' => null,
                             'destination' => null,
                             'place' => $place,
+                            'estAMoi' => false,
                         ];
                     }
                 }
             }
 
-            return response()->json(['success' => true, 'places' => $places], 200);
+            return response()->json(['success' => true, 'places' => $placesFormatees], 200);
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
         }
