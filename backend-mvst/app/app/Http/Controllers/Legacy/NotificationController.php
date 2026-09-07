@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\ResolveurAdminService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class NotificationController extends Controller
 {
@@ -69,6 +70,29 @@ class NotificationController extends Controller
                 return response()->json(['success' => false, 'message' => 'Réponse du service invalide'], 200);
             }
 
+            // Enregistrement dans l'historique (best-effort : un echec d'insertion
+            // ne doit pas faire echouer l'envoi deja realise).
+            try {
+                DB::insert(
+                    'INSERT INTO "NotificationsDiffusion"
+                        ("idAdmin", "nomAdmin", cible, gare, "idUtilisateurs", titre, message, destinataires, envoyes)
+                     VALUES (:idAdmin, :nomAdmin, :cible, :gare, :idUtilisateurs, :titre, :message, :destinataires, :envoyes)',
+                    [
+                        'idAdmin' => $admin->idUtilisateur,
+                        'nomAdmin' => trim(($admin->nom ?? '').' '.($admin->prenoms ?? '')),
+                        'cible' => $cible,
+                        'gare' => $data['gare'] ?? null,
+                        'idUtilisateurs' => isset($data['idUtilisateurs']) ? json_encode($data['idUtilisateurs']) : null,
+                        'titre' => $titre,
+                        'message' => $message,
+                        'destinataires' => $decoded['destinataires'] ?? 0,
+                        'envoyes' => $decoded['envoyes'] ?? 0,
+                    ]
+                );
+            } catch (\Throwable $e) {
+                // historique non bloquant
+            }
+
             return response()->json($decoded, 200);
         } catch (\Throwable $e) {
             return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
@@ -124,6 +148,43 @@ class NotificationController extends Controller
             }
 
             return response()->json($decoded, 200);
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
+        }
+    }
+
+    /**
+     * Historique des diffusions.
+     * Superadmin : toutes les diffusions. Admin habilite : uniquement les siennes.
+     * GET/POST. Renvoie les 100 dernieres, plus recentes d'abord.
+     */
+    public function historiqueDiffusion(Request $request): JsonResponse
+    {
+        $admin = $this->resolveur->resoudreAdmin($request);
+        if (! $admin || ($admin->role !== 'superadmin' && ! $admin->peutGererLesNotificationsPush)) {
+            return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
+        }
+
+        try {
+            if ($admin->role === 'superadmin') {
+                $lignes = DB::select(
+                    'SELECT id, "idAdmin", "nomAdmin", cible, gare, "idUtilisateurs", titre, message, destinataires, envoyes, "dateEnvoi"
+                     FROM "NotificationsDiffusion"
+                     ORDER BY "dateEnvoi" DESC
+                     LIMIT 100'
+                );
+            } else {
+                $lignes = DB::select(
+                    'SELECT id, "idAdmin", "nomAdmin", cible, gare, "idUtilisateurs", titre, message, destinataires, envoyes, "dateEnvoi"
+                     FROM "NotificationsDiffusion"
+                     WHERE "idAdmin" = :idAdmin
+                     ORDER BY "dateEnvoi" DESC
+                     LIMIT 100',
+                    ['idAdmin' => $admin->idUtilisateur]
+                );
+            }
+
+            return response()->json(['success' => true, 'historique' => $lignes], 200);
         } catch (\Throwable $e) {
             return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
         }
