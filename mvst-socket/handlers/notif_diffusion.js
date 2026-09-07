@@ -96,7 +96,13 @@ router.post('/envoyer', async (req, res) => {
     }
 
     const corps = message.length > 240 ? message.substring(0, 237) + '...' : message;
-    const r = await envoyerNotification(tokens, titre, corps, { type: 'diffusion' });
+    const idAnnonce = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    const r = await envoyerNotification(tokens, titre, corps, {
+      type: 'diffusion',
+      idAnnonce: idAnnonce,
+      titre: titre,
+      message: message,
+    });
 
     return res.status(200).json({
       success: true,
