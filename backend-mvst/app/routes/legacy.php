@@ -11,6 +11,7 @@ use App\Http\Controllers\Legacy\PointsController;
 use App\Http\Controllers\Legacy\SuggestionController;
 use App\Http\Controllers\Legacy\TicketController;
 use App\Http\Controllers\Legacy\UtilisateurController;
+use App\Http\Controllers\Legacy\VersionController;
 use Illuminate\Support\Facades\Route;
 
 // Routes reproduisant a l'identique les endpoints de php-mvst/app/.
@@ -40,6 +41,7 @@ Route::post('envoyerNotificationDiffusion.php', [NotificationController::class, 
 Route::post('compterNotificationDiffusion.php', [NotificationController::class, 'compterDiffusion']);
 Route::post('historiqueNotificationDiffusion.php', [NotificationController::class, 'historiqueDiffusion']);
 Route::post('rechercheUtilisateurs.php', [UtilisateurController::class, 'rechercheUtilisateurs']);
+Route::post('versions.php', [VersionController::class, 'versions']);
 Route::post('supprimerNumeroAdmin.php', [AdminController::class, 'supprimerNumero']);
 Route::post('verifierAdmin.php', [AdminController::class, 'verifier']);
 Route::post('verifierTelephoneAdmin.php', [AdminController::class, 'verifierTelephone']);
