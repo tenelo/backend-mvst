@@ -325,6 +325,38 @@ class AuthController extends Controller
     }
 
     /**
+     * POST /admin/reset-pin. Equivalent de resetPin() pour les comptes Admins.
+     * Meme principe : Laravel NE VERIFIE PAS l'OTP (confiance a l'app apres
+     * validation Firebase). Met a jour Admins.pin et revoque les tokens.
+     */
+    public function adminResetPin(Request $request): JsonResponse
+    {
+        $data = json_decode($request->getContent(), true) ?? [];
+
+        $telephone = $data['telephone'] ?? null;
+        $nouveauPin = isset($data['nouveau_pin']) ? (string) $data['nouveau_pin'] : null;
+
+        if (empty($telephone) || $nouveauPin === null || ! preg_match('/^\d{4}$/', $nouveauPin)) {
+            return response()->json(['success' => false, 'message' => 'telephone et nouveau_pin (4 chiffres) requis'], 200);
+        }
+
+        $admin = Admin::where('telephone', $telephone)->first();
+
+        if (! $admin) {
+            return response()->json(['success' => false, 'message' => 'Compte introuvable'], 200);
+        }
+
+        $admin->pin = Hash::make($nouveauPin);
+        $admin->save();
+
+        // Deconnecte les autres appareils : tous les tokens existants du
+        // compte sont revoques apres un changement de PIN.
+        $admin->tokens()->delete();
+
+        return response()->json(['success' => true], 200);
+    }
+
+    /**
      * Formate un compte (Utilisateur ou Admin) pour une reponse JSON.
      * Construit a la main (pas de toArray()/toJson() direct sur le
      * modele) : garantit que "pin" ne peut jamais fuiter, meme si $hidden
