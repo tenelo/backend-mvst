@@ -103,7 +103,7 @@ class UtilisateurController extends Controller
                 return response()->json(['success' => false, 'message' => 'Paramètre manquant'], 200);
             }
 
-            $rows = DB::select('SELECT id, points FROM "Utilisateurs" WHERE telephone = :telephone', ['telephone' => $data['telephone']]);
+            $rows = DB::select('SELECT id, points, pin FROM "Utilisateurs" WHERE telephone = :telephone', ['telephone' => $data['telephone']]);
             $utilisateur = $rows[0] ?? null;
 
             $existe = (bool) $utilisateur;
@@ -113,6 +113,7 @@ class UtilisateurController extends Controller
                 'success' => true,
                 'existe' => $existe,
                 'bloque' => $bloque,
+                'aPin' => $utilisateur && $utilisateur->pin !== null && $utilisateur->pin !== '',
                 'points' => $utilisateur ? (int) $utilisateur->points : 0,
             ], 200);
         } catch (\Exception $e) {
