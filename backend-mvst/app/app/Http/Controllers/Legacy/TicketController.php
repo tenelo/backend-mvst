@@ -176,10 +176,21 @@ class TicketController extends Controller
      */
     public function ticketsDuJour(Request $request): JsonResponse
     {
+        $admin = app(ResolveurAdminService::class)->resoudreAdmin($request);
+        if (! $admin) {
+            return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
+        }
+
         try {
             $data = json_decode($request->getContent(), true);
-            if (! isset($data['documentId']) || ! isset($data['gare'])) {
+            if (! isset($data['documentId'])) {
                 return response()->json(['success' => false, 'message' => 'Paramètres manquants'], 200);
+            }
+
+            $gare = $admin->role === 'superadmin' ? ($data['gare'] ?? null) : $admin->gare;
+
+            if (! $gare) {
+                return response()->json(['success' => false, 'message' => 'Paramètre manquant : gare'], 200);
             }
 
             $tickets = DB::select(
@@ -187,7 +198,7 @@ class TicketController extends Controller
                  WHERE "documentId" = :documentId
                  AND depart = :gare
                  ORDER BY "dateDeCreation" DESC',
-                ['documentId' => $data['documentId'], 'gare' => $data['gare']]
+                ['documentId' => $data['documentId'], 'gare' => $gare]
             );
 
             return response()->json(['success' => true, 'tickets' => $tickets], 200);
