@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Legacy;
 
 use App\Http\Controllers\Controller;
+use App\Services\ResolveurAdminService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -56,6 +57,11 @@ class ImageController extends Controller
             }
 
             if ($request->method() === 'POST' && $request->has('action')) {
+                $admin = app(ResolveurAdminService::class)->exigerSuperadmin($request);
+                if (! $admin) {
+                    return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
+                }
+
                 $action = $request->input('action');
 
                 if ($action === 'modifier') {
