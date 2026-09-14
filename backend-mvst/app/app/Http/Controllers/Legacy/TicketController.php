@@ -546,6 +546,11 @@ class TicketController extends Controller
      */
     public function misAjourEtatScanne(Request $request): JsonResponse
     {
+        $admin = app(ResolveurAdminService::class)->resoudreAdmin($request);
+        if (! $admin) {
+            return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
+        }
+
         try {
             $data = json_decode($request->getContent(), true);
 
@@ -558,6 +563,20 @@ class TicketController extends Controller
             $place = (int) $data['place'];
             $scanneDate = date('Y-m-d H:i:s');
 
+            $estSuperadmin = $admin->role === 'superadmin';
+            $gareAdmin = $admin->gare;
+
+            $filtreGareUpdate = $estSuperadmin ? '' : ' AND depart = :gare';
+            $paramsUpdate = [
+                'scanneDate' => $scanneDate,
+                'documentId' => $documentId,
+                'idUtilisateur' => $idUtilisateur,
+                'place' => $place,
+            ];
+            if (! $estSuperadmin) {
+                $paramsUpdate['gare'] = $gareAdmin;
+            }
+
             // UPDATE conditionnel : ne marque QUE si le ticket est valide et
             // pas deja scanne. rowCount = nb de lignes reellement modifiees.
             $affected = DB::update(
@@ -567,19 +586,11 @@ class TicketController extends Controller
                    AND "idUtilisateur" = :idUtilisateur
                    AND place = :place
                    AND statut = \'valide\'
-                   AND "etatScanne" = \'nonScanné\'',
-                [
-                    'scanneDate' => $scanneDate,
-                    'documentId' => $documentId,
-                    'idUtilisateur' => $idUtilisateur,
-                    'place' => $place,
-                ]
+                   AND "etatScanne" = \'nonScanné\''.$filtreGareUpdate,
+                $paramsUpdate
             );
 
             if ($affected > 0) {
-                // Scan reussi (premiere fois). Notification temps reel
-                // best-effort (brique 2) : la gare n'est pas dans le payload
-                // de cet endpoint, on la retrouve via Departs.
                 $departRow = DB::selectOne(
                     'SELECT depart FROM "Departs" WHERE "documentId" = :docId',
                     ['docId' => $documentId]
@@ -593,20 +604,25 @@ class TicketController extends Controller
                 ], 200);
             }
 
-            // 0 ligne modifiee : soit deja scanne, soit introuvable. On
-            // distingue les deux par un SELECT cible.
+            // 0 ligne modifiee : soit deja scanne, soit introuvable (ou hors gare).
+            $filtreGareSelect = $estSuperadmin ? '' : ' AND depart = :gare';
+            $paramsSelect = [
+                'documentId' => $documentId,
+                'idUtilisateur' => $idUtilisateur,
+                'place' => $place,
+            ];
+            if (! $estSuperadmin) {
+                $paramsSelect['gare'] = $gareAdmin;
+            }
+
             $rows = DB::select(
                 'SELECT "etatScanne" FROM "Tickets"
                  WHERE "documentId" = :documentId
                    AND "idUtilisateur" = :idUtilisateur
                    AND place = :place
-                   AND statut = \'valide\'
+                   AND statut = \'valide\''.$filtreGareSelect.'
                  LIMIT 1',
-                [
-                    'documentId' => $documentId,
-                    'idUtilisateur' => $idUtilisateur,
-                    'place' => $place,
-                ]
+                $paramsSelect
             );
 
             if (empty($rows)) {
@@ -617,7 +633,6 @@ class TicketController extends Controller
                 ], 200);
             }
 
-            // La ligne existe mais n'a pas ete modifiee -> deja scannee.
             return response()->json([
                 'success' => false,
                 'etat' => 'deja_scanne',
