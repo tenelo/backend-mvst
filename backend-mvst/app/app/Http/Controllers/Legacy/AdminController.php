@@ -317,10 +317,8 @@ class AdminController extends Controller
                 'success' => true,
                 'existe' => true,
                 'gare' => $admin->gare,
-                'uid' => $admin->idUtilisateur,
                 'role' => $admin->role,
                 'compteExiste' => ! empty($admin->nom),
-                'peutGererLesNotificationsPush' => (bool) $admin->peutGererLesNotificationsPush,
             ], 200);
         } catch (\PDOException $e) {
             return response()->json(['success' => false, 'message' => 'PDO: '.$e->getMessage()], 200);
