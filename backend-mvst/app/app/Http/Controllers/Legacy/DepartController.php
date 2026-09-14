@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Legacy;
 
 use App\Http\Controllers\Controller;
+use App\Services\ResolveurAdminService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -15,10 +16,21 @@ class DepartController extends Controller
      */
     public function departsParGare(Request $request): JsonResponse
     {
+        $admin = app(ResolveurAdminService::class)->resoudreAdmin($request);
+        if (! $admin) {
+            return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
+        }
+
         try {
             $data = json_decode($request->getContent(), true);
 
-            if (! isset($data['date']) || ! isset($data['gare'])) {
+            if (! isset($data['date'])) {
+                return response()->json(['success' => false, 'message' => 'Paramètres manquants'], 200);
+            }
+
+            $gare = $admin->role === 'superadmin' ? ($data['gare'] ?? null) : $admin->gare;
+
+            if (! $gare) {
                 return response()->json(['success' => false, 'message' => 'Paramètres manquants'], 200);
             }
 
@@ -45,7 +57,7 @@ class DepartController extends Controller
                                           WHERE tx."documentId" = d."documentId") )
                 GROUP BY "documentId", "heureDeDepart", "dateDeDepart", depart, destination, d."typeVoyage"
                 ORDER BY "heureDeDepart" ASC',
-                ['date' => $data['date'], 'gare' => $data['gare']]
+                ['date' => $data['date'], 'gare' => $gare]
             );
 
             return response()->json(['success' => true, 'departs' => $departs], 200);
