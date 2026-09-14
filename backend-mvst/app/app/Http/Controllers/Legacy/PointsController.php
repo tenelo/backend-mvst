@@ -48,6 +48,10 @@ class PointsController extends Controller
                 $nouveauxPoints = 0;
                 $motif = 'Blocage automatique : 4ème série de tentatives Code Secret échouées';
             } else {
+                $admin = app(ResolveurAdminService::class)->resoudreAdmin($request);
+                if (! $admin) {
+                    return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
+                }
                 $nouveauxPoints = max(0, $anciensPoints - 1);
                 $motif = 'Suppression de ticket par administrateur (-1 point)';
             }
