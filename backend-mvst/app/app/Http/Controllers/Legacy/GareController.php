@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Legacy;
 
 use App\Http\Controllers\Controller;
+use App\Services\ResolveurAdminService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -29,6 +30,12 @@ class GareController extends Controller
             }
 
             $data = json_decode($request->getContent(), true);
+
+            $admin = app(ResolveurAdminService::class)->exigerSuperadmin($request);
+            if (! $admin) {
+                return response()->json(['success' => false, 'message' => 'Acces refuse'], 200);
+            }
+
             $action = $data['action'] ?? '';
 
             if ($action === 'ajouter') {
@@ -70,6 +77,12 @@ class GareController extends Controller
             }
 
             $data = json_decode($request->getContent(), true);
+
+            $admin = app(ResolveurAdminService::class)->exigerSuperadmin($request);
+            if (! $admin) {
+                return response()->json(['success' => false, 'message' => 'Acces refuse'], 200);
+            }
+
             $action = $data['action'] ?? '';
 
             if ($action === 'ajouter') {
