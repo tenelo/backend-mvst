@@ -155,7 +155,7 @@ class AdminController extends Controller
             }
 
             $affected = DB::update(
-                'UPDATE "Admins" SET telephone = :telephone, role = :role, gare = :gare, profil = :role WHERE id = :id AND nom IS NULL',
+                'UPDATE "Admins" SET telephone = :telephone, role = :role, gare = :gare WHERE id = :id AND nom IS NULL',
                 ['telephone' => $data['telephone'], 'role' => $data['role'], 'gare' => $data['gare'], 'id' => $data['id']]
             );
 
