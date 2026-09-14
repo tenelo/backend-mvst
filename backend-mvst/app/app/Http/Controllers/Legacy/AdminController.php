@@ -375,20 +375,21 @@ class AdminController extends Controller
      */
     public function recupererGare(Request $request): JsonResponse
     {
-        if (! $this->resolveur->resoudreAdmin($request)) {
+        $admin = $this->resolveur->resoudreAdmin($request);
+        if (! $admin) {
             return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
         }
 
         try {
             $data = json_decode($request->getContent(), true);
 
-            if (! isset($data['idUtilisateur'])) {
-                return response()->json(['success' => false, 'message' => 'Paramètre manquant'], 200);
-            }
+            $idCible = ($admin->role === 'superadmin' && ! empty($data['idUtilisateur']))
+                ? $data['idUtilisateur']
+                : $admin->idUtilisateur;
 
             $rows = DB::select(
                 'SELECT gare FROM "Admins" WHERE "idUtilisateur" = :idUtilisateur LIMIT 1',
-                ['idUtilisateur' => $data['idUtilisateur']]
+                ['idUtilisateur' => $idCible]
             );
             $result = $rows[0] ?? null;
 
