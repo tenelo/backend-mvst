@@ -167,6 +167,9 @@ class CarController extends Controller
             $data = json_decode($request->getContent(), true);
 
             $depart = $data['depart'] ?? null;
+            if ($admin->role !== 'superadmin') {
+                $depart = $admin->gare;
+            }
             $destination = $data['destination'] ?? null;
             $date = $data['date'] ?? null;
             $heure = $data['heure'] ?? null;
@@ -343,12 +346,16 @@ class CarController extends Controller
 
             // Recupere le car cible.
             $car = DB::selectOne(
-                'SELECT id, "documentId", type FROM "CarsPositionnes" WHERE id = :id',
+                'SELECT id, "documentId", type, depart FROM "CarsPositionnes" WHERE id = :id',
                 ['id' => (int) $id]
             );
 
             if (! $car) {
                 return response()->json(['success' => false, 'message' => 'Car introuvable'], 200);
+            }
+
+            if ($admin->role !== 'superadmin' && $car->depart !== $admin->gare) {
+                return response()->json(['success' => false, 'message' => 'Car hors de votre gare'], 200);
             }
 
             // PROTECTION : refuse si des billets valides existent sur ce car.
@@ -389,6 +396,9 @@ class CarController extends Controller
             $data = json_decode($request->getContent(), true);
 
             $depart = $data['depart'] ?? null;
+            if ($admin->role !== 'superadmin') {
+                $depart = $admin->gare;
+            }
             $destination = $data['destination'] ?? null;
             $date = $data['date'] ?? null;
             $heure = $data['heure'] ?? null;
