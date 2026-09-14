@@ -258,6 +258,11 @@ class CarController extends Controller
             $conditions = [];
             $params = [];
 
+            if ($admin->role !== 'superadmin') {
+                $conditions[] = 'depart = :gare';
+                $params['gare'] = $admin->gare;
+            }
+
             if ($date !== null && $date !== '') {
                 $conditions[] = 'date_iso = :date';
                 $params['date'] = $date;
