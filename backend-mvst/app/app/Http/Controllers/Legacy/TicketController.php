@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Legacy;
 
 use App\Http\Controllers\Controller;
 use App\Models\Admin;
+use App\Services\ResolveurAdminService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -107,21 +108,33 @@ class TicketController extends Controller
      */
     public function ticketsAscanner(Request $request): JsonResponse
     {
+        $admin = app(ResolveurAdminService::class)->resoudreAdmin($request);
+        if (! $admin) {
+            return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
+        }
+
         try {
             $data = json_decode($request->getContent(), true);
-            if (! isset($data['gare'])) {
-                return response()->json(['success' => false, 'message' => 'Paramètre manquant : gare'], 200);
-            }
+            $gare = $admin->role === 'superadmin' ? ($data['gare'] ?? null) : $admin->gare;
 
             $dateDuJour = date('Y-m-d');
 
-            $tickets = DB::select(
-                'SELECT * FROM "Tickets"
-                 WHERE "datePourCalcule" >= :dateDuJour
-                 AND depart = :gare
-                 ORDER BY "datePourCalcule" ASC, heure ASC',
-                ['dateDuJour' => $dateDuJour, 'gare' => $data['gare']]
-            );
+            if ($gare) {
+                $tickets = DB::select(
+                    'SELECT * FROM "Tickets"
+                     WHERE "datePourCalcule" >= :dateDuJour
+                     AND depart = :gare
+                     ORDER BY "datePourCalcule" ASC, heure ASC',
+                    ['dateDuJour' => $dateDuJour, 'gare' => $gare]
+                );
+            } else {
+                $tickets = DB::select(
+                    'SELECT * FROM "Tickets"
+                     WHERE "datePourCalcule" >= :dateDuJour
+                     ORDER BY "datePourCalcule" ASC, heure ASC',
+                    ['dateDuJour' => $dateDuJour]
+                );
+            }
 
             return response()->json(['success' => true, 'tickets' => $tickets], 200);
         } catch (\Exception $e) {
@@ -133,8 +146,13 @@ class TicketController extends Controller
      * Equivalent de superadmin_ticketsAscanner.php.
      * GET, aucun parametre (pas de filtre gare -- version large).
      */
-    public function superadminTicketsAscanner(): JsonResponse
+    public function superadminTicketsAscanner(Request $request): JsonResponse
     {
+        $admin = app(ResolveurAdminService::class)->exigerSuperadmin($request);
+        if (! $admin) {
+            return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
+        }
+
         try {
             $dateDuJour = date('Y-m-d');
 
