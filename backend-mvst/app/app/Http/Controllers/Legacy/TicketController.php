@@ -267,10 +267,21 @@ class TicketController extends Controller
      */
     public function tableauAdmin(Request $request): JsonResponse
     {
+        $admin = app(ResolveurAdminService::class)->resoudreAdmin($request);
+        if (! $admin) {
+            return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
+        }
+
         try {
             $data = json_decode($request->getContent(), true);
-            if (! isset($data['annee']) || ! isset($data['gare'])) {
+            if (! isset($data['annee'])) {
                 return response()->json(['success' => false, 'message' => 'Paramètres manquants'], 200);
+            }
+
+            $gare = $admin->role === 'superadmin' ? ($data['gare'] ?? null) : $admin->gare;
+
+            if (! $gare) {
+                return response()->json(['success' => false, 'message' => 'Paramètre manquant : gare'], 200);
             }
 
             $tickets = DB::select(
@@ -279,7 +290,7 @@ class TicketController extends Controller
                  WHERE d.annee = :annee
                  AND t.depart = :gare
                  ORDER BY t."dateDeCreation" DESC',
-                ['annee' => $data['annee'], 'gare' => $data['gare']]
+                ['annee' => $data['annee'], 'gare' => $gare]
             );
 
             return response()->json(['success' => true, 'tickets' => $tickets], 200);
@@ -632,18 +643,33 @@ class TicketController extends Controller
      */
     public function suppressionTickets(Request $request): JsonResponse
     {
+        $admin = app(ResolveurAdminService::class)->resoudreAdmin($request);
+        if (! $admin) {
+            return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
+        }
+
         try {
             $data = json_decode($request->getContent(), true);
             $method = $request->method();
+            $estSuperadmin = $admin->role === 'superadmin';
+            $gareAdmin = $admin->gare;
 
             if ($method === 'POST' && isset($data['dates'])) {
                 $dates = $data['dates'];
                 $placeholders = implode(',', array_fill(0, count($dates), '?'));
 
-                $tickets = DB::select(
-                    "SELECT * FROM \"Tickets\" WHERE date IN ($placeholders) ORDER BY \"dateDeCreation\" DESC",
-                    $dates
-                );
+                if ($estSuperadmin) {
+                    $tickets = DB::select(
+                        "SELECT * FROM \"Tickets\" WHERE date IN ($placeholders) ORDER BY \"dateDeCreation\" DESC",
+                        $dates
+                    );
+                } else {
+                    $params = array_merge($dates, [$gareAdmin]);
+                    $tickets = DB::select(
+                        "SELECT * FROM \"Tickets\" WHERE date IN ($placeholders) AND depart = ? ORDER BY \"dateDeCreation\" DESC",
+                        $params
+                    );
+                }
 
                 return response()->json(['success' => true, 'tickets' => $tickets], 200);
             }
@@ -651,7 +677,15 @@ class TicketController extends Controller
             if ($method === 'POST' && isset($data['action']) && $data['action'] === 'supprimer') {
                 $id = (int) ($data['id'] ?? 0);
 
-                DB::delete('DELETE FROM "Tickets" WHERE id = :id', ['id' => $id]);
+                if ($estSuperadmin) {
+                    $supprimes = DB::delete('DELETE FROM "Tickets" WHERE id = :id', ['id' => $id]);
+                } else {
+                    $supprimes = DB::delete('DELETE FROM "Tickets" WHERE id = :id AND depart = :gare', ['id' => $id, 'gare' => $gareAdmin]);
+                }
+
+                if ($supprimes === 0) {
+                    return response()->json(['success' => false, 'message' => 'Ticket introuvable ou hors de votre gare'], 200);
+                }
 
                 return response()->json(['success' => true, 'message' => 'Ticket supprimé'], 200);
             }
@@ -779,10 +813,19 @@ class TicketController extends Controller
      */
     public function graphiques(Request $request): JsonResponse
     {
+        $admin = app(ResolveurAdminService::class)->resoudreAdmin($request);
+        if (! $admin) {
+            return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
+        }
+
         try {
             $data = json_decode($request->getContent(), true);
             $type = $data['type'] ?? '';
-            $gare = $data['gare'] ?? '';
+            $gare = $admin->role === 'superadmin' ? ($data['gare'] ?? null) : $admin->gare;
+
+            if (! $gare) {
+                return response()->json(['success' => false, 'message' => 'Paramètre manquant : gare'], 200);
+            }
 
             if ($type === 'jour') {
                 $sql = 'SELECT t.* FROM "Tickets" t
