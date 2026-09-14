@@ -213,10 +213,21 @@ class TicketController extends Controller
      */
     public function ticketsDuJourScannes(Request $request): JsonResponse
     {
+        $admin = app(ResolveurAdminService::class)->resoudreAdmin($request);
+        if (! $admin) {
+            return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
+        }
+
         try {
             $data = json_decode($request->getContent(), true);
-            if (! isset($data['date']) || ! isset($data['gare'])) {
+            if (! isset($data['date'])) {
                 return response()->json(['success' => false, 'message' => 'Paramètres manquants'], 200);
+            }
+
+            $gare = $admin->role === 'superadmin' ? ($data['gare'] ?? null) : $admin->gare;
+
+            if (! $gare) {
+                return response()->json(['success' => false, 'message' => 'Paramètre manquant : gare'], 200);
             }
 
             $tickets = DB::select(
@@ -225,7 +236,7 @@ class TicketController extends Controller
                  AND "etatScanne" = \'scanné\'
                  AND depart = :gare
                  ORDER BY "scanneDate" DESC',
-                ['date' => $data['date'], 'gare' => $data['gare']]
+                ['date' => $data['date'], 'gare' => $gare]
             );
 
             return response()->json(['success' => true, 'tickets' => $tickets], 200);
