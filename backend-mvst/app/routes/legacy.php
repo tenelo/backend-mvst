@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Legacy\AdminController;
+use App\Http\Controllers\Legacy\CarController;
 use App\Http\Controllers\Legacy\DepartController;
 use App\Http\Controllers\Legacy\DiversController;
 use App\Http\Controllers\Legacy\GareController;
@@ -37,6 +38,7 @@ Route::post('ajouterNumeroAdmin.php', [AdminController::class, 'ajouterNumero'])
 Route::post('modifierNumeroAdmin.php', [AdminController::class, 'modifierNumero']);
 Route::post('modifierPermissionSuggestions.php', [AdminController::class, 'modifierPermissionSuggestions']);
 Route::post('modifierPermissionNotificationsPush.php', [AdminController::class, 'modifierPermissionNotificationsPush']);
+Route::post('modifierPermissionPositionnerCar.php', [AdminController::class, 'modifierPermissionPositionnerCar']);
 Route::post('envoyerNotificationDiffusion.php', [NotificationController::class, 'envoyerDiffusion']);
 Route::post('compterNotificationDiffusion.php', [NotificationController::class, 'compterDiffusion']);
 Route::post('historiqueNotificationDiffusion.php', [NotificationController::class, 'historiqueDiffusion']);
@@ -87,6 +89,14 @@ Route::post('departsParGare.php', [DepartController::class, 'departsParGare']);
 Route::match(['get', 'post'], 'process_places_temporaires.php', [DepartController::class, 'processPlacesTemporaires']);
 Route::match(['get', 'post'], 'process_departs_vides.php', [DepartController::class, 'processDepartsVides']);
 Route::get('config_nettoyage_departs.php', [DepartController::class, 'configNettoyageDeparts']);
+
+// ─── Lot 8 : Cars positionnés (plusieurs cars par créneau) ───────────────────
+Route::post('positionnerCar.php', [CarController::class, 'positionnerCar']);
+Route::post('resoudreCar.php', [CarController::class, 'resoudreCar']);
+Route::post('listerCars.php', [CarController::class, 'listerCars']);
+Route::post('listerTousCars.php', [CarController::class, 'listerTousCars']);
+Route::post('retirerCar.php', [CarController::class, 'retirerCar']);
+Route::post('suiviAffluence.php', [CarController::class, 'suiviAffluence']);
 
 // ─── Lot 8a : Tickets — lectures ────────────────────────────────────────────
 

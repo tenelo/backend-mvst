@@ -380,6 +380,13 @@ class TicketController extends Controller
 
             $prixDuTicket = (int) $ligneReelle->prix;
 
+            // Compte les ventes valides AVANT cette transaction (pour detecter le franchissement du palier d'alerte).
+            $nbVendusAvantRow = DB::selectOne(
+                'SELECT COUNT(*) AS n FROM "Tickets" WHERE "documentId" = :d AND statut = \'valide\' AND "typeVoyage" = :t',
+                ['d' => $documentId, 't' => $typeVoyage]
+            );
+            $nbVendusAvant = (int) ($nbVendusAvantRow->n ?? 0);
+
             DB::beginTransaction();
 
             // Verification de possession : chaque place demandee doit etre
@@ -441,6 +448,7 @@ class TicketController extends Controller
             // Notification temps reel best-effort (brique 2) : $depart deja
             // disponible depuis le payload, pas de requete supplementaire.
             $this->notifierSynthese($depart);
+            $this->verifierAlerteAffluence($documentId, $typeVoyage, $depart, $destination, $heure, $date, $nbVendusAvant);
 
             return response()->json(['success' => true, 'message' => 'Tickets ajoutés avec succès'], 200);
         } catch (\Exception $e) {
@@ -1280,5 +1288,104 @@ class TicketController extends Controller
         } catch (\Throwable $e) {
             // Best-effort : le temps reel est perdu ce coup-ci, le scan/vente reste valide.
         }
+    }
+
+    /**
+     * Alerte affluence best-effort : si cette vente vient de faire franchir le seuil
+     * "10 places restantes" pour ce car, notifie les admins (superadmin + gare) via
+     * le socket. UNE SEULE alerte par car (table AlertesAffluence, documentId unique).
+     * N'echoue JAMAIS la vente : tout est encapsule, erreurs avalees.
+     */
+    private function verifierAlerteAffluence(string $documentId, string $type, ?string $depart, ?string $destination, ?string $heure, ?string $date, int $nbVendusAvant): void
+    {
+        try {
+            // Seuil vendable selon le type (memes cles Parametres que resoudreCar/listerCars).
+            $cap = $this->lireParametreEntier($type === 'vip' ? 'capacite_vip' : 'capacite_standard', $type === 'vip' ? 50 : 70);
+            $res = $this->lireParametreEntier($type === 'vip' ? 'places_reservees_vip' : 'places_reservees_standard', $type === 'vip' ? 4 : 5);
+            $seuil = $cap - $res;
+            $palier = $seuil - 10;
+
+            if ($palier < 0) {
+                return; // seuil trop petit, pas d'alerte pertinente
+            }
+
+            // Vendus APRES cette vente.
+            $row = DB::selectOne(
+                'SELECT COUNT(*) AS n FROM "Tickets" WHERE "documentId" = :d AND statut = :s AND "typeVoyage" = :t',
+                ['d' => $documentId, 's' => 'valide', 't' => $type]
+            );
+            $nbVendusApres = (int) ($row->n ?? 0);
+
+            // Ne se declenche qu'au FRANCHISSEMENT : avant < palier, apres >= palier.
+            if (! ($nbVendusAvant < $palier && $nbVendusApres >= $palier)) {
+                return;
+            }
+
+            // Anti-spam definitif : une ligne par documentId. Si deja present, on n'alerte pas.
+            // L'index UNIQUE sur documentId gere aussi la concurrence (2 ventes simultanees).
+            $insere = DB::insert(
+                'INSERT INTO "AlertesAffluence" ("documentId", type, depart, heure, vendus, seuil)
+                 VALUES (:d, :t, :dep, :h, :v, :s)
+                 ON CONFLICT ("documentId") DO NOTHING',
+                ['d' => $documentId, 't' => $type, 'dep' => $depart, 'h' => $heure, 'v' => $nbVendusApres, 's' => $seuil]
+            );
+
+            // Si le flag existait deja (autre process a alerte), ON CONFLICT DO NOTHING -> on s'arrete.
+            $flag = DB::selectOne('SELECT vendus FROM "AlertesAffluence" WHERE "documentId" = :d', ['d' => $documentId]);
+            if (! $flag || (int) $flag->vendus !== $nbVendusApres) {
+                // Le flag en base ne correspond pas a notre vente : une autre requete a pose l'alerte. On n'envoie pas.
+                return;
+            }
+
+            // Numero de car deduit du documentId (suffixe _std_carN / _vip_carN, sinon car 1).
+            $numeroCar = 1;
+            if (preg_match('/_car(\d+)$/', $documentId, $m)) {
+                $numeroCar = (int) $m[1];
+            }
+
+            // Libelle ligne : cherche dans Lignes, sinon "depart destination".
+            $ligneRow = DB::selectOne(
+                'SELECT ligne FROM "Lignes" WHERE depart = :dep AND destination = :dest AND type = :t LIMIT 1',
+                ['dep' => $depart, 'dest' => $destination, 't' => $type]
+            );
+            $ligne = $ligneRow->ligne ?? trim(($depart ?? '').' '.($destination ?? ''));
+
+            // Appel best-effort au socket (timeout court, erreurs avalees).
+            $payload = json_encode([
+                'depart' => $depart,
+                'destination' => $destination,
+                'ligne' => $ligne,
+                'heure' => $heure,
+                'date' => $date,
+                'type' => $type,
+                'numeroCar' => $numeroCar,
+                'vendus' => $nbVendusApres,
+                'seuil' => $seuil,
+            ]);
+
+            $ch = curl_init('http://socket-mvst:3000/alerte-affluence/notifier');
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 2);
+            curl_exec($ch);
+            curl_close($ch);
+        } catch (\Throwable $e) {
+            // Best-effort strict : on avale tout, la vente reste valide.
+            \Log::warning('Alerte affluence non envoyee : '.$e->getMessage());
+        }
+    }
+
+    /**
+     * Lit un entier depuis Parametres avec repli.
+     */
+    private function lireParametreEntier(string $cle, int $repli): int
+    {
+        $row = DB::selectOne('SELECT valeur FROM "Parametres" WHERE cle = :cle', ['cle' => $cle]);
+        if (! $row || ! is_numeric($row->valeur)) {
+            return $repli;
+        }
+        return (int) $row->valeur;
     }
 }

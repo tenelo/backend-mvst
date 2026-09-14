@@ -47,7 +47,7 @@ function construireNomRoomGare(gare) {
 async function rejoindreRoom(socket, payload) {
   try {
     const { depart, destination, date, heure } = payload;
-    const documentId = construireDocumentId(depart, destination, date, heure);
+    const documentId = payload.documentId || construireDocumentId(depart, destination, date, heure);
     const nomRoom    = construireNomRoom(documentId);
     socket.join(nomRoom);
     socket.data.documentId  = documentId;
@@ -132,7 +132,7 @@ async function choisirPlace(socket, payload, io) {
   const client = await pool.connect();
   try {
     const { depart, destination, date, heure, mois, moisAnnee, annee, numeroDePlace } = payload;
-    const documentId           = construireDocumentId(depart, destination, date, heure);
+    const documentId           = payload.documentId || construireDocumentId(depart, destination, date, heure);
     const nomRoom              = construireNomRoom(documentId);
     const idDesDepartsParLigne = `${depart}_${date}_${heure}`;
     const dateVoyage           = parseDateFrToISO(date);
@@ -231,7 +231,7 @@ async function libererPlaces(socket, payload, io) {
   try {
     ({ numerosDePlace } = payload);
     const { depart, destination, date, heure } = payload;
-    documentId = construireDocumentId(depart, destination, date, heure);
+    documentId = payload.documentId || construireDocumentId(depart, destination, date, heure);
     const nomRoom = construireNomRoom(documentId);
 
     await client.query('BEGIN');

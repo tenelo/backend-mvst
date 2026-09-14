@@ -30,6 +30,7 @@ const emitSynthese     = require('./handlers/emit_synthese');
 const deviceTokens     = require('./handlers/device_tokens');
 const notifSuggestions = require('./handlers/notif_suggestions');
 const notifDiffusion   = require('./handlers/notif_diffusion');
+const alerteAffluence  = require('./handlers/alerte_affluence');
 const server = http.createServer(app);
 const io     = new Server(server, {
   cors: {
@@ -45,6 +46,7 @@ app.use('/emit-synthese', emitSynthese(io));
 app.use('/device-tokens', deviceTokens);
 app.use('/notif-suggestions', notifSuggestions);
 app.use('/notif-diffusion', notifDiffusion);
+app.use('/alerte-affluence', alerteAffluence);
 
 app.get('/health', (req, res) => {
   res.json({
