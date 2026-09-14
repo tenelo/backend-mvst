@@ -373,6 +373,8 @@ class AuthController extends Controller
                 'telephone' => $compte->telephone,
                 'gare' => $compte->gare,
                 'role' => $compte->role,
+                'peutGererLesNotificationsPush' => (bool) $compte->peutGererLesNotificationsPush,
+                'peutPositionnerCar' => (bool) $compte->peutPositionnerCar,
             ];
         }
 
