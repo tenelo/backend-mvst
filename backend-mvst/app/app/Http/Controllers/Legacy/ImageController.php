@@ -111,6 +111,16 @@ class ImageController extends Controller
                             return response()->json(['success' => false, 'message' => 'Erreur upload image'], 200);
                         }
 
+                        $extensionsAutorisees = ['jpg', 'jpeg', 'png', 'webp', 'gif'];
+                        $mimesAutorises = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+                        $extensionFichier = strtolower($file->getClientOriginalExtension());
+                        $mimeReel = $file->getMimeType();
+
+                        if (! in_array($extensionFichier, $extensionsAutorisees, true)
+                            || ! in_array($mimeReel, $mimesAutorises, true)) {
+                            return response()->json(['success' => false, 'message' => 'Type de fichier non autorisé (image uniquement)'], 200);
+                        }
+
                         $extension = $file->getClientOriginalExtension();
                         $nomFichier = uniqid('img_').'.'.$extension;
                         $uploadDir = public_path('uploads');
