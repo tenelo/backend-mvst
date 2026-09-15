@@ -31,6 +31,7 @@ const deviceTokens     = require('./handlers/device_tokens');
 const notifSuggestions = require('./handlers/notif_suggestions');
 const notifDiffusion   = require('./handlers/notif_diffusion');
 const alerteAffluence  = require('./handlers/alerte_affluence');
+const { middlewareAuth } = require('./handlers/auth');
 const server = http.createServer(app);
 const io     = new Server(server, {
   cors: {
@@ -40,6 +41,8 @@ const io     = new Server(server, {
   pingTimeout:  10000,
   pingInterval: 5000,
 });
+
+io.use(middlewareAuth());
 
 app.use('/reinitialiser_pin', reinitialiserPin);
 app.use('/emit-synthese', emitSynthese(io));
