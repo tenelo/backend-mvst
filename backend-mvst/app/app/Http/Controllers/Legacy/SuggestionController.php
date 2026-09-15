@@ -3,11 +3,19 @@
 namespace App\Http\Controllers\Legacy;
 
 use App\Http\Controllers\Controller;
+use App\Services\ResolveurAdminService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class SuggestionController extends Controller
 {
+    private function peutGererSuggestions(Request $request): bool
+    {
+        $admin = app(ResolveurAdminService::class)->resoudreAdmin($request);
+
+        return $admin && ($admin->role === 'superadmin' || $admin->peutGererSuggestions);
+    }
+
     /**
      * Equivalent de api_suggestions.php.
      * GET action=get_all/get_by_user (query string) ou POST JSON
@@ -38,28 +46,32 @@ class SuggestionController extends Controller
 
             if ($method === 'GET') {
                 if ($action === 'get_all') {
-                    $dateDebut = $request->query('date_debut');
-                    $dateFin = $request->query('date_fin');
-                    $where = [];
-                    $params = [];
+                    if (! $this->peutGererSuggestions($request)) {
+                        $response = response()->json(['success' => false, 'error' => 'Accès non autorisé'], 200);
+                    } else {
+                        $dateDebut = $request->query('date_debut');
+                        $dateFin = $request->query('date_fin');
+                        $where = [];
+                        $params = [];
 
-                    if ($dateDebut) {
-                        $where[] = 'createdat >= :date_debut';
-                        $params['date_debut'] = $dateDebut.' 00:00:00';
-                    }
-                    if ($dateFin) {
-                        $where[] = 'createdat <= :date_fin';
-                        $params['date_fin'] = $dateFin.' 23:59:59';
-                    }
+                        if ($dateDebut) {
+                            $where[] = 'createdat >= :date_debut';
+                            $params['date_debut'] = $dateDebut.' 00:00:00';
+                        }
+                        if ($dateFin) {
+                            $where[] = 'createdat <= :date_fin';
+                            $params['date_fin'] = $dateFin.' 23:59:59';
+                        }
 
-                    $sql = 'SELECT * FROM "Suggestions"';
-                    if (! empty($where)) {
-                        $sql .= ' WHERE '.implode(' AND ', $where);
-                    }
-                    $sql .= ' ORDER BY createdat DESC';
+                        $sql = 'SELECT * FROM "Suggestions"';
+                        if (! empty($where)) {
+                            $sql .= ' WHERE '.implode(' AND ', $where);
+                        }
+                        $sql .= ' ORDER BY createdat DESC';
 
-                    $rows = DB::select($sql, $params);
-                    $response = response()->json(['success' => true, 'suggestions' => $this->formatRows($rows)], 200);
+                        $rows = DB::select($sql, $params);
+                        $response = response()->json(['success' => true, 'suggestions' => $this->formatRows($rows)], 200);
+                    }
                 } elseif ($action === 'get_by_user') {
                     $idutilisateur = trim($request->query('idutilisateur', ''));
 
@@ -105,33 +117,41 @@ class SuggestionController extends Controller
                         $response = response()->json(['success' => true, 'id' => (int) $row->id, 'createdat' => $row->createdat], 200);
                     }
                 } elseif ($action === 'update_statut') {
-                    $id = (int) ($input['id'] ?? 0);
-                    $statut = trim($input['statut'] ?? '');
-
-                    if ($id <= 0 || ! in_array($statut, ['en_attente', 'lu', 'traite'])) {
-                        $response = response()->json(['success' => false, 'error' => 'Paramètres invalides'], 200);
+                    if (! $this->peutGererSuggestions($request)) {
+                        $response = response()->json(['success' => false, 'error' => 'Accès non autorisé'], 200);
                     } else {
-                        DB::update('UPDATE "Suggestions" SET statut = :statut WHERE id = :id', ['statut' => $statut, 'id' => $id]);
-                        $response = response()->json(['success' => true], 200);
+                        $id = (int) ($input['id'] ?? 0);
+                        $statut = trim($input['statut'] ?? '');
+
+                        if ($id <= 0 || ! in_array($statut, ['en_attente', 'lu', 'traite'])) {
+                            $response = response()->json(['success' => false, 'error' => 'Paramètres invalides'], 200);
+                        } else {
+                            DB::update('UPDATE "Suggestions" SET statut = :statut WHERE id = :id', ['statut' => $statut, 'id' => $id]);
+                            $response = response()->json(['success' => true], 200);
+                        }
                     }
                 } elseif ($action === 'repondre') {
-                    $id = (int) ($input['id'] ?? 0);
-                    $reponse = trim($input['reponse'] ?? '');
-
-                    if ($id <= 0 || empty($reponse)) {
-                        $response = response()->json(['success' => false, 'error' => 'ID et reponse requis'], 200);
+                    if (! $this->peutGererSuggestions($request)) {
+                        $response = response()->json(['success' => false, 'error' => 'Accès non autorisé'], 200);
                     } else {
-                        DB::update(
-                            'UPDATE "Suggestions" SET reponse = :reponse, statut = :statut WHERE id = :id',
-                            ['reponse' => $reponse, 'statut' => 'traite', 'id' => $id]
-                        );
+                        $id = (int) ($input['id'] ?? 0);
+                        $reponse = trim($input['reponse'] ?? '');
 
-                        $rows = DB::select('SELECT idutilisateur FROM "Suggestions" WHERE id = :id', ['id' => $id]);
-                        $idutilisateur = ! empty($rows) ? (string) $rows[0]->idutilisateur : '';
+                        if ($id <= 0 || empty($reponse)) {
+                            $response = response()->json(['success' => false, 'error' => 'ID et reponse requis'], 200);
+                        } else {
+                            DB::update(
+                                'UPDATE "Suggestions" SET reponse = :reponse, statut = :statut WHERE id = :id',
+                                ['reponse' => $reponse, 'statut' => 'traite', 'id' => $id]
+                            );
 
-                        $this->notifierReponseSuggestion($idutilisateur, $reponse);
+                            $rows = DB::select('SELECT idutilisateur FROM "Suggestions" WHERE id = :id', ['id' => $id]);
+                            $idutilisateur = ! empty($rows) ? (string) $rows[0]->idutilisateur : '';
 
-                        $response = response()->json(['success' => true], 200);
+                            $this->notifierReponseSuggestion($idutilisateur, $reponse);
+
+                            $response = response()->json(['success' => true], 200);
+                        }
                     }
                 } elseif ($action === 'delete') {
                     $id = (int) ($input['id'] ?? 0);
@@ -147,18 +167,22 @@ class SuggestionController extends Controller
                         $response = response()->json(['success' => $affected > 0], 200);
                     }
                 } elseif ($action === 'admin_delete') {
-                    $id = (int) ($input['id'] ?? 0);
-
-                    if ($id <= 0) {
-                        $response = response()->json(['success' => false, 'error' => 'ID invalide'], 200);
+                    if (! $this->peutGererSuggestions($request)) {
+                        $response = response()->json(['success' => false, 'error' => 'Accès non autorisé'], 200);
                     } else {
-                        $rows = DB::select('SELECT idutilisateur FROM "Suggestions" WHERE id = :id', ['id' => $id]);
-                        $row = $rows[0] ?? null;
-                        $idutilisateur = $row ? $row->idutilisateur : '';
+                        $id = (int) ($input['id'] ?? 0);
 
-                        $affected = DB::delete('DELETE FROM "Suggestions" WHERE id = :id', ['id' => $id]);
+                        if ($id <= 0) {
+                            $response = response()->json(['success' => false, 'error' => 'ID invalide'], 200);
+                        } else {
+                            $rows = DB::select('SELECT idutilisateur FROM "Suggestions" WHERE id = :id', ['id' => $id]);
+                            $row = $rows[0] ?? null;
+                            $idutilisateur = $row ? $row->idutilisateur : '';
 
-                        $response = response()->json(['success' => $affected > 0, 'idutilisateur' => $idutilisateur], 200);
+                            $affected = DB::delete('DELETE FROM "Suggestions" WHERE id = :id', ['id' => $id]);
+
+                            $response = response()->json(['success' => $affected > 0, 'idutilisateur' => $idutilisateur], 200);
+                        }
                     }
                 } else {
                     $response = response()->json(['success' => false, 'error' => 'action inconnue'], 200);
