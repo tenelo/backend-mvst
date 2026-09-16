@@ -44,7 +44,10 @@ function middlewareAuth() {
   return async (socket, next) => {
     socket.data.auth = null;
     try {
-      const token = socket.handshake?.auth?.token;
+      const token =
+        socket.handshake?.query?.token ||
+        socket.handshake?.auth?.token ||
+        socket.handshake?.headers?.['x-auth-token'];
       if (token && typeof token === 'string') {
         const identite = await resoudreIdentite(token);
         if (identite) {
