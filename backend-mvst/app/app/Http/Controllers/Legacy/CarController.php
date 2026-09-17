@@ -351,7 +351,7 @@ class CarController extends Controller
 
             // Recupere le car cible.
             $car = DB::selectOne(
-                'SELECT id, "documentId", type, depart FROM "CarsPositionnes" WHERE id = :id',
+                'SELECT id, "documentId", type, depart, "idAdmin" FROM "CarsPositionnes" WHERE id = :id',
                 ['id' => (int) $id]
             );
 
@@ -361,6 +361,10 @@ class CarController extends Controller
 
             if ($admin->role !== 'superadmin' && $car->depart !== $admin->gare) {
                 return response()->json(['success' => false, 'message' => 'Car hors de votre gare'], 200);
+            }
+
+            if ($admin->role !== 'superadmin' && (int) $car->idAdmin !== $admin->id) {
+                return response()->json(['success' => false, 'message' => 'Vous ne pouvez retirer qu\'un car que vous avez vous-même positionné'], 200);
             }
 
             // PROTECTION : refuse si des billets valides existent sur ce car.
