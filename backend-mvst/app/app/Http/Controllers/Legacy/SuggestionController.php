@@ -215,7 +215,7 @@ class SuggestionController extends Controller
             $contexte = stream_context_create([
                 'http' => [
                     'method' => 'POST',
-                    'header' => "Content-Type: application/json\r\n",
+                    'header' => "Content-Type: application/json\r\nX-Internal-Secret: ".env('INTERNAL_SOCKET_SECRET')."\r\n",
                     'content' => json_encode(['message' => $message, 'categorie' => $categorie]),
                     'timeout' => 2,
                 ],
@@ -237,7 +237,7 @@ class SuggestionController extends Controller
             $contexte = stream_context_create([
                 'http' => [
                     'method' => 'POST',
-                    'header' => "Content-Type: application/json\r\n",
+                    'header' => "Content-Type: application/json\r\nX-Internal-Secret: ".env('INTERNAL_SOCKET_SECRET')."\r\n",
                     'content' => json_encode(['idutilisateur' => $idutilisateur, 'reponse' => $reponse]),
                     'timeout' => 2,
                 ],

@@ -32,6 +32,7 @@ const notifSuggestions = require('./handlers/notif_suggestions');
 const notifDiffusion   = require('./handlers/notif_diffusion');
 const alerteAffluence  = require('./handlers/alerte_affluence');
 const { middlewareAuth } = require('./handlers/auth');
+const { verifierSecretInterne } = require('./handlers/verifier_secret_interne');
 const server = http.createServer(app);
 const io     = new Server(server, {
   cors: {
@@ -45,11 +46,11 @@ const io     = new Server(server, {
 io.use(middlewareAuth());
 
 app.use('/reinitialiser_pin', reinitialiserPin);
-app.use('/emit-synthese', emitSynthese(io));
+app.use('/emit-synthese', verifierSecretInterne, emitSynthese(io));
 app.use('/device-tokens', deviceTokens);
-app.use('/notif-suggestions', notifSuggestions);
-app.use('/notif-diffusion', notifDiffusion);
-app.use('/alerte-affluence', alerteAffluence);
+app.use('/notif-suggestions', verifierSecretInterne, notifSuggestions);
+app.use('/notif-diffusion', verifierSecretInterne, notifDiffusion);
+app.use('/alerte-affluence', verifierSecretInterne, alerteAffluence);
 
 app.get('/health', (req, res) => {
   res.json({

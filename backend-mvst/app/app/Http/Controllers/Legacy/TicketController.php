@@ -1399,7 +1399,7 @@ class TicketController extends Controller
             $contexte = stream_context_create([
                 'http' => [
                     'method' => 'POST',
-                    'header' => "Content-Type: application/json\r\n",
+                    'header' => "Content-Type: application/json\r\nX-Internal-Secret: ".env('INTERNAL_SOCKET_SECRET')."\r\n",
                     'content' => json_encode(['gare' => $gare]),
                     'timeout' => 2,
                 ],
@@ -1486,7 +1486,7 @@ class TicketController extends Controller
 
             $ch = curl_init('http://socket-mvst:3000/alerte-affluence/notifier');
             curl_setopt($ch, CURLOPT_POST, true);
-            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json', 'X-Internal-Secret: '.env('INTERNAL_SOCKET_SECRET')]);
             curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
             curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
             curl_setopt($ch, CURLOPT_TIMEOUT, 2);

@@ -54,7 +54,7 @@ router.post('/notifier', async (req, res) => {
       : `${depart} ${destination || ''}`.trim();
     const libelleCar = numeroCar ? `Car n°${numeroCar}` : 'Car';
     const titre = 'Affluence — pensez à positionner un car';
-    const corps = `${libelleCar} ${String(type).toUpperCase()} ${libelleLigne} de ${heure}${date ? ' le ' + String(date).replace(/_/g, ' ') : ''} : ${vendus}/${seuil} places. Plus que 10 avant le plein.`;
+    const corps = `${libelleCar} ${String(type).toUpperCase()} ${libelleLigne} de ${heure}${date ? ' le ' + String(date).replace(/_/g, ' ') : ''} : ${vendus}/${seuil} places. Plus que 10 places libres avant le plein.`;
 
     const r = await envoyerNotification(tokens, titre, corps, {
       type: 'alerte_affluence',

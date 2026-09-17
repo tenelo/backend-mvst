@@ -53,7 +53,7 @@ class NotificationController extends Controller
             $contexte = stream_context_create([
                 'http' => [
                     'method' => 'POST',
-                    'header' => "Content-Type: application/json\r\n",
+                    'header' => "Content-Type: application/json\r\nX-Internal-Secret: ".env('INTERNAL_SOCKET_SECRET')."\r\n",
                     'content' => json_encode($payload),
                     'timeout' => 15,
                 ],
@@ -130,7 +130,7 @@ class NotificationController extends Controller
             $contexte = stream_context_create([
                 'http' => [
                     'method' => 'POST',
-                    'header' => "Content-Type: application/json\r\n",
+                    'header' => "Content-Type: application/json\r\nX-Internal-Secret: ".env('INTERNAL_SOCKET_SECRET')."\r\n",
                     'content' => json_encode($payload),
                     'timeout' => 15,
                 ],
