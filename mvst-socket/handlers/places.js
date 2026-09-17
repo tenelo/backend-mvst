@@ -71,6 +71,16 @@ async function rejoindreRoom(socket, payload) {
 // ─────────────────────────────────────────────────────────────────────────────
 async function rejoindreRoomGare(socket, payload) {
   try {
+    const auth = socket.data.auth;
+    if (!auth || !auth.role) {
+      socket.emit('erreur', { message: 'Accès non autorisé' });
+      return;
+    }
+    if (auth.role !== 'superadmin' && auth.gare !== payload.gare) {
+      socket.emit('erreur', { message: 'Accès non autorisé' });
+      return;
+    }
+
     const { gare } = payload;
     const nomRoomGare = construireNomRoomGare(gare);
     socket.join(nomRoomGare);

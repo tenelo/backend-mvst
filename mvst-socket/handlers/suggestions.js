@@ -8,6 +8,12 @@ function rejoindreRoomSuggestionsUser(socket, payload) {
 }
 
 function rejoindreRoomSuggestionsAdmin(socket) {
+  const auth = socket.data.auth;
+  if (!auth || (auth.role !== 'admin' && auth.role !== 'superadmin')) {
+    socket.emit('erreur', { message: 'Accès non autorisé' });
+    return;
+  }
+
   socket.join(ROOM_ADMINS);
   console.log(`👔 Admin ${socket.id} rejoint ${ROOM_ADMINS}`);
 }
