@@ -50,7 +50,7 @@ return [
     |
     */
 
-    'expiration' => null,
+    'expiration' => 43200, // 30 jours (en minutes) — un token volé n'est plus valable à vie
 
     /*
     |--------------------------------------------------------------------------
