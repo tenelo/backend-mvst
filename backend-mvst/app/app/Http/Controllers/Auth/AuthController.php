@@ -10,6 +10,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\PersonalAccessToken;
 
@@ -215,9 +216,20 @@ class AuthController extends Controller
             return response()->json(['success' => false, 'message' => 'telephone et pin (4 chiffres) requis'], 200);
         }
 
+        // Anti-brute-force : clé par téléphone + IP, 5 tentatives / 15 min.
+        $cleThrottle = 'login:' . sha1($telephone . '|' . $request->ip());
+        if (RateLimiter::tooManyAttempts($cleThrottle, 5)) {
+            $secondes = RateLimiter::availableIn($cleThrottle);
+            return response()->json([
+                'success' => false,
+                'message' => 'Trop de tentatives. Réessayez dans ' . ceil($secondes / 60) . ' minute(s).',
+            ], 200);
+        }
+
         $compte = $modele::where('telephone', $telephone)->first();
 
         if (! $compte) {
+            RateLimiter::hit($cleThrottle, 900);
             return response()->json(['success' => false, 'message' => 'Compte introuvable'], 200);
         }
 
@@ -225,6 +237,7 @@ class AuthController extends Controller
             // Capture au vol : le compte n'est pas encore migre vers Sanctum,
             // on demande a Firebase de confirmer le PIN une derniere fois.
             if (! $this->firebase->verifierTelephonePin($telephone, $pin)) {
+                RateLimiter::hit($cleThrottle, 900);
                 return response()->json(['success' => false, 'message' => 'Identifiants invalides'], 200);
             }
 
@@ -232,9 +245,12 @@ class AuthController extends Controller
             $compte->save();
         } else {
             if (! Hash::check($pin, $compte->pin)) {
+                RateLimiter::hit($cleThrottle, 900);
                 return response()->json(['success' => false, 'message' => 'Identifiants invalides'], 200);
             }
         }
+
+        RateLimiter::clear($cleThrottle);
 
         $token = $compte->createToken($nomToken)->plainTextToken;
 
