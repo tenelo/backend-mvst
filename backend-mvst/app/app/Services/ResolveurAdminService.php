@@ -30,6 +30,15 @@ class ResolveurAdminService
             return null;
         }
 
+        // Expiration Sanctum (config en minutes ; null = jamais). Résolution
+        // manuelle => on l'applique nous-mêmes, le guard sanctum n'étant pas utilisé.
+        $exp = config('sanctum.expiration');
+        if ($exp !== null && $token->created_at !== null
+            && $token->created_at->addMinutes($exp)->isPast()) {
+            $token->delete();
+            return null;
+        }
+
         $compte = $token->tokenable;
         if (! ($compte instanceof Admin)) {
             return null;

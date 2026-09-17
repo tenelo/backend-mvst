@@ -1359,6 +1359,13 @@ class TicketController extends Controller
             return ['erreur' => 'token'];
         }
 
+        $exp = config('sanctum.expiration');
+        if ($exp !== null && $token->created_at !== null
+            && $token->created_at->addMinutes($exp)->isPast()) {
+            $token->delete();
+            return ['erreur' => 'token'];
+        }
+
         $compte = $token->tokenable;
         if (! $compte) {
             return ['erreur' => 'token'];

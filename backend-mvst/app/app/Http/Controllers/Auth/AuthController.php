@@ -275,6 +275,13 @@ class AuthController extends Controller
             return response()->json(['success' => false, 'message' => 'Token invalide ou manquant'], 200);
         }
 
+        $exp = config('sanctum.expiration');
+        if ($exp !== null && $token->created_at !== null
+            && $token->created_at->addMinutes($exp)->isPast()) {
+            $token->delete();
+            return response()->json(['success' => true, 'message' => 'Déconnecté'], 200);
+        }
+
         $token->delete();
 
         return response()->json(['success' => true], 200);
@@ -292,6 +299,13 @@ class AuthController extends Controller
 
         if (! $token) {
             return response()->json(['success' => false, 'message' => 'Token invalide ou manquant'], 200);
+        }
+
+        $exp = config('sanctum.expiration');
+        if ($exp !== null && $token->created_at !== null
+            && $token->created_at->addMinutes($exp)->isPast()) {
+            $token->delete();
+            return response()->json(['success' => false, 'message' => 'Session expirée, reconnectez-vous'], 200);
         }
 
         $compte = $token->tokenable;
