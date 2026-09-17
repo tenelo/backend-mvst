@@ -240,9 +240,19 @@ async function libererPlaces(socket, payload, io) {
   let numerosDePlace;
   try {
     ({ numerosDePlace } = payload);
+
+    // Anti-griefing : un socket ne peut liberer que les places qu'il detient
+    // lui-meme (socket.data.placesChoisies, rempli par choisirPlace).
+    const detenues = Array.isArray(socket.data.placesChoisies) ? socket.data.placesChoisies : [];
+    const numerosAutorises = (numerosDePlace || []).filter(p => detenues.includes(p));
+
     const { depart, destination, date, heure } = payload;
     documentId = payload.documentId || construireDocumentId(depart, destination, date, heure);
     const nomRoom = construireNomRoom(documentId);
+
+    if (numerosAutorises.length === 0) {
+      return;
+    }
 
     await client.query('BEGIN');
 
@@ -263,10 +273,10 @@ async function libererPlaces(socket, payload, io) {
 
     const ticketsResult = await client.query(
       `SELECT place FROM "Tickets" WHERE "documentId" = $1 AND place = ANY($2::int[]) AND statut = 'valide'`,
-      [documentId, numerosDePlace]
+      [documentId, numerosAutorises]
     );
     const placesVendues  = ticketsResult.rows.map(r => r.place);
-    const placesALiberer = numerosDePlace.filter(p => !placesVendues.includes(p));
+    const placesALiberer = numerosAutorises.filter(p => !placesVendues.includes(p));
 
     if (placesVendues.length > 0) {
       console.warn(`⚠️ libererPlaces: places [${placesVendues}] ignorées dans ${documentId} — Ticket valide déjà existant`);
