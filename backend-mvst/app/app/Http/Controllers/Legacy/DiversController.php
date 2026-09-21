@@ -163,12 +163,6 @@ class DiversController extends Controller
             ['cle' => 'nbJours', 'valeur' => $nbJours, 'valeur2' => $nbJours]
         );
 
-        // Notification a socket-mvst via le reseau Docker interne, exactement comme
-        // le PHP source : appel HTTP synchrone, erreur totalement avalee par "@".
-        // socket-mvst lui-meme n'est ni lu ni modifie.
-        $nodeUrl = 'http://socket-mvst:3000/emit-config-dates?nbJours='.$nbJours;
-        @file_get_contents($nodeUrl);
-
         return response()->json(['success' => true, 'message' => 'Configuration mise à jour', 'nbJours' => $nbJours], 200);
     }
 }
