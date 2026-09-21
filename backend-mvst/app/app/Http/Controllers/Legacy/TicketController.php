@@ -3,12 +3,10 @@
 namespace App\Http\Controllers\Legacy;
 
 use App\Http\Controllers\Controller;
-use App\Models\Admin;
 use App\Services\ResolveurAdminService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Laravel\Sanctum\PersonalAccessToken;
 
 class TicketController extends Controller
 {
@@ -890,8 +888,8 @@ class TicketController extends Controller
         try {
             $data = json_decode($request->getContent(), true);
 
-            $admin = $this->resoudreAdmin($request);
-            if (! ($admin instanceof Admin)) {
+            $admin = app(ResolveurAdminService::class)->resoudreAdmin($request);
+            if (! $admin) {
                 return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
             }
 
@@ -1008,8 +1006,8 @@ class TicketController extends Controller
         try {
             $data = json_decode($request->getContent(), true);
 
-            $admin = $this->resoudreAdmin($request);
-            if (! ($admin instanceof Admin)) {
+            $admin = app(ResolveurAdminService::class)->resoudreAdmin($request);
+            if (! $admin) {
                 return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
             }
 
@@ -1105,8 +1103,8 @@ class TicketController extends Controller
         try {
             $data = json_decode($request->getContent(), true);
 
-            $admin = $this->resoudreAdmin($request);
-            if (! ($admin instanceof Admin)) {
+            $admin = app(ResolveurAdminService::class)->resoudreAdmin($request);
+            if (! $admin) {
                 return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
             }
 
@@ -1273,8 +1271,8 @@ class TicketController extends Controller
         try {
             $data = json_decode($request->getContent(), true);
 
-            $admin = $this->resoudreAdmin($request);
-            if (! ($admin instanceof Admin)) {
+            $admin = app(ResolveurAdminService::class)->resoudreAdmin($request);
+            if (! $admin) {
                 return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
             }
 
@@ -1338,44 +1336,6 @@ class TicketController extends Controller
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
         }
-    }
-
-    /**
-     * Resout l'Admin courant depuis le bearer token, pour les endpoints
-     * dashboard (synthese_gare, vue_par_depart, tendances_gare). Convention
-     * projet : jamais de 401, toujours HTTP 200 + success:false cote
-     * appelant -- ce helper ne renvoie donc jamais d'erreur HTTP lui-meme.
-     *
-     * Rejette explicitement un token client (tokenable_type
-     * App\Models\Utilisateur) : un token Sanctum valide ne suffit pas, il
-     * doit pointer sur un Admin.
-     *
-     * @return Admin|array{erreur: 'token'|'role'}
-     */
-    private function resoudreAdmin(Request $request): Admin|array
-    {
-        $token = PersonalAccessToken::findToken((string) $request->bearerToken());
-        if (! $token) {
-            return ['erreur' => 'token'];
-        }
-
-        $exp = config('sanctum.expiration');
-        if ($exp !== null && $token->created_at !== null
-            && $token->created_at->addMinutes($exp)->isPast()) {
-            $token->delete();
-            return ['erreur' => 'token'];
-        }
-
-        $compte = $token->tokenable;
-        if (! $compte) {
-            return ['erreur' => 'token'];
-        }
-
-        if (! ($compte instanceof Admin)) {
-            return ['erreur' => 'role'];
-        }
-
-        return $compte;
     }
 
     /**
