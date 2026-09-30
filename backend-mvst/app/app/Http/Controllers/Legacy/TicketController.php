@@ -66,17 +66,20 @@ class TicketController extends Controller
 
             $gare = $admin->role === 'superadmin' ? ($data['gare'] ?? null) : $admin->gare;
 
-            if (! $gare) {
+            if ($admin->role !== 'superadmin' && ! $gare) {
                 return response()->json(['success' => false, 'message' => 'Paramètre manquant : gare'], 200);
             }
+
+            $filtreGare = $gare !== null ? 'AND depart = :gare' : '';
+            $bindGare = $gare !== null ? ['gare' => $gare] : [];
 
             $tickets = DB::select(
                 'SELECT * FROM "Tickets"
                  WHERE "documentId" = :documentId
-                 AND depart = :gare
+                 '.$filtreGare.'
                  AND "etatScanne" = \'scanné\'
                  ORDER BY "scanneDate" DESC',
-                ['documentId' => $data['documentId'], 'gare' => $gare]
+                array_merge($bindGare, ['documentId' => $data['documentId']])
             );
 
             return response()->json(['success' => true, 'tickets' => $tickets], 200);
@@ -240,17 +243,20 @@ class TicketController extends Controller
 
             $gare = $admin->role === 'superadmin' ? ($data['gare'] ?? null) : $admin->gare;
 
-            if (! $gare) {
+            if ($admin->role !== 'superadmin' && ! $gare) {
                 return response()->json(['success' => false, 'message' => 'Paramètre manquant : gare'], 200);
             }
+
+            $filtreGare = $gare !== null ? 'AND depart = :gare' : '';
+            $bindGare = $gare !== null ? ['gare' => $gare] : [];
 
             $tickets = DB::select(
                 'SELECT * FROM "Tickets"
                  WHERE "scanneDate"::date = :date
                  AND "etatScanne" = \'scanné\'
-                 AND depart = :gare
+                 '.$filtreGare.'
                  ORDER BY "scanneDate" DESC',
-                ['date' => $data['date'], 'gare' => $gare]
+                array_merge($bindGare, ['date' => $data['date']])
             );
 
             return response()->json(['success' => true, 'tickets' => $tickets], 200);

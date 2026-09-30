@@ -30,9 +30,12 @@ class DepartController extends Controller
 
             $gare = $admin->role === 'superadmin' ? ($data['gare'] ?? null) : $admin->gare;
 
-            if (! $gare) {
+            if ($admin->role !== 'superadmin' && ! $gare) {
                 return response()->json(['success' => false, 'message' => 'Paramètres manquants'], 200);
             }
+
+            $filtreGare = $gare !== null ? 'AND depart = :gare' : '';
+            $bindGare = $gare !== null ? ['gare' => $gare] : [];
 
             $departs = DB::select(
                 'SELECT
@@ -51,13 +54,13 @@ class DepartController extends Controller
                      WHERE t."documentId" = d."documentId") AS "nombreDePlacesChoisies"
                 FROM "Departs" d
                 WHERE "dateDeDepart" = :date
-                AND depart = :gare
+                '.$filtreGare.'
                 AND NOT ( (d."placesChoisies" IS NULL OR d."placesChoisies" = \'[]\')
                           AND NOT EXISTS (SELECT 1 FROM "Tickets" tx
                                           WHERE tx."documentId" = d."documentId") )
                 GROUP BY "documentId", "heureDeDepart", "dateDeDepart", depart, destination, d."typeVoyage"
                 ORDER BY "heureDeDepart" ASC',
-                ['date' => $data['date'], 'gare' => $gare]
+                array_merge($bindGare, ['date' => $data['date']])
             );
 
             return response()->json(['success' => true, 'departs' => $departs], 200);
