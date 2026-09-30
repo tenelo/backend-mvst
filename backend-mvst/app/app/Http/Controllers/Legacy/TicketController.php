@@ -1361,6 +1361,98 @@ class TicketController extends Controller
     }
 
     /**
+     * clients_actifs.php (nouvel endpoint, pas une migration PHP). POST JSON.
+     * { "date": "YYYY-MM-DD" } obligatoire. Meme definition "clients actifs"
+     * que tendancesGare : fenetre configurable via Parametres.actifs_fenetre_mois
+     * (defaut 3 mois), COUNT(DISTINCT "idUtilisateur"), statut='valide',
+     * "datePourCalcule" entre date-fenetre et date.
+     *
+     * Superadmin : "total" toutes gares confondues + "parGare" pour CHAQUE
+     * ligne de la table "Gares" (0 si aucun client actif sur cette gare).
+     * Admin standard : "total" et "parGare" limites a sa propre gare (une
+     * seule ligne, identique au total).
+     *
+     * "total" n'est PAS la somme de "parGare" pour un superadmin : un meme
+     * client peut avoir voyage depuis plusieurs gares sur la fenetre, il
+     * n'est compte qu'une fois dans "total" (COUNT DISTINCT global) mais
+     * peut apparaitre dans plusieurs lignes de "parGare". Ecart normal.
+     */
+    public function clientsActifs(Request $request): JsonResponse
+    {
+        $admin = app(ResolveurAdminService::class)->resoudreAdmin($request);
+        if (! $admin) {
+            return response()->json(['success' => false, 'message' => 'Accès non autorisé'], 200);
+        }
+
+        try {
+            $data = json_decode($request->getContent(), true);
+
+            if (! isset($data['date'])) {
+                return response()->json(['success' => false, 'message' => 'Paramètres manquants'], 200);
+            }
+
+            $date = (new \DateTime($data['date']))->format('Y-m-d');
+
+            $fenetreRow = DB::selectOne('SELECT valeur FROM "Parametres" WHERE cle = :cle', ['cle' => 'actifs_fenetre_mois']);
+            $fenetreMois = $fenetreRow ? (int) $fenetreRow->valeur : 3;
+            $debut = (new \DateTime($date))->modify("-{$fenetreMois} months")->format('Y-m-d');
+
+            $estSuperadmin = $admin->role === 'superadmin';
+            $filtreGare = $estSuperadmin ? '' : 'AND depart = :gare';
+            $bindGare = $estSuperadmin ? [] : ['gare' => $admin->gare];
+
+            $totalRow = DB::selectOne(
+                'SELECT COUNT(DISTINCT "idUtilisateur") AS n
+                 FROM "Tickets"
+                 WHERE statut = \'valide\' '.$filtreGare.' AND "datePourCalcule" BETWEEN :debut AND :fin',
+                array_merge($bindGare, ['debut' => $debut, 'fin' => $date])
+            );
+
+            if ($estSuperadmin) {
+                $garesRows = DB::select('SELECT gare FROM "Gares" ORDER BY gare');
+
+                $parGareRows = DB::select(
+                    'SELECT depart AS gare, COUNT(DISTINCT "idUtilisateur") AS n
+                     FROM "Tickets"
+                     WHERE statut = \'valide\' AND "datePourCalcule" BETWEEN :debut AND :fin
+                     GROUP BY depart',
+                    ['debut' => $debut, 'fin' => $date]
+                );
+
+                $map = [];
+                foreach ($parGareRows as $r) {
+                    $map[$r->gare] = (int) $r->n;
+                }
+
+                $parGare = [];
+                foreach ($garesRows as $g) {
+                    $parGare[] = [
+                        'gare' => $g->gare,
+                        'nombre' => $map[$g->gare] ?? 0,
+                    ];
+                }
+            } else {
+                $parGare = [[
+                    'gare' => $admin->gare,
+                    'nombre' => (int) $totalRow->n,
+                ]];
+            }
+
+            usort($parGare, fn ($a, $b) => $b['nombre'] <=> $a['nombre']);
+
+            return response()->json([
+                'success' => true,
+                'date' => $date,
+                'fenetreMois' => $fenetreMois,
+                'total' => (int) $totalRow->n,
+                'parGare' => $parGare,
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => 'Erreur : '.$e->getMessage()], 200);
+        }
+    }
+
+    /**
      * Notifie mvst-socket (brique 1, route POST /emit-synthese deja en
      * prod) qu'une vente ou un scan vient de reussir pour cette gare, pour
      * diffusion temps reel 'synthese_maj' a la room gare_<gare>.

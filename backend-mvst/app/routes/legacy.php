@@ -125,3 +125,4 @@ Route::post('synthese_gare.php', [TicketController::class, 'syntheseGare']);
 Route::post('synthese_toutes_gares.php', [TicketController::class, 'syntheseToutesGares']);
 Route::post('vue_par_depart.php', [TicketController::class, 'vueParDepart']);
 Route::post('tendances_gare.php', [TicketController::class, 'tendancesGare']);
+Route::post('clients_actifs.php', [TicketController::class, 'clientsActifs']);
