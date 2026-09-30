@@ -1208,6 +1208,16 @@ class TicketController extends Controller
                  GROUP BY substring("heure" from 1 for 5) ORDER BY heure ASC',
                 array_merge($bindGare, ['debut' => $courantDebut, 'fin' => $courantFin])
             );
+            $parDestinationTypeRows = DB::select(
+                'SELECT destination,
+                        CASE WHEN "typeVoyage" = \'vip\' THEN \'vip\' ELSE \'standard\' END AS "typeVoyage",
+                        COUNT(*) AS vendus, COALESCE(SUM("prixDuTicket"), 0) AS recettes
+                 FROM "Tickets"
+                 WHERE statut = \'valide\' '.$filtreGare.' AND "datePourCalcule" BETWEEN :debut AND :fin
+                 GROUP BY destination, CASE WHEN "typeVoyage" = \'vip\' THEN \'vip\' ELSE \'standard\' END
+                 ORDER BY destination, "typeVoyage"',
+                array_merge($bindGare, ['debut' => $courantDebut, 'fin' => $courantFin])
+            );
 
             // D) Clients actifs : fenetre configurable (Parametres), pas
             // codee en dur, defaut 3 mois si la cle est absente.
@@ -1249,6 +1259,12 @@ class TicketController extends Controller
                         'heure' => $r->heure,
                         'vendus' => (int) $r->vendus,
                     ], $parHeureRows),
+                    'parDestinationType' => array_map(fn ($r) => [
+                        'destination' => $r->destination,
+                        'typeVoyage' => $r->typeVoyage,
+                        'vendus' => (int) $r->vendus,
+                        'recettes' => (int) $r->recettes,
+                    ], $parDestinationTypeRows),
                 ],
                 'actifs' => [
                     'fenetreMois' => $fenetreMois,
