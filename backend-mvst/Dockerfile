@@ -1,4 +1,4 @@
-FROM php:8.4-fpm-alpine
+FROM php:8.4.27-fpm-alpine
 # Dependances systeme
 RUN apk add --no-cache postgresql-dev git unzip icu-dev \
     && docker-php-ext-install pdo pdo_pgsql bcmath intl
